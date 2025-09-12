@@ -1,0 +1,49 @@
+# =========================
+# General
+# =========================
+.DS_Store
+Thumbs.db
+*.log
+*.env
+*.env.local
+*.env.*.local
+*.tgz
+
+# IDE / Editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# =========================
+# Node.js / Backend
+# =========================
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# =========================
+# Vite + React / Frontend
+# =========================
+# Dependencies
+frontend/node_modules/
+
+# Production build
+frontend/dist/
+
+# Vite cache
+frontend/.vite/
+
+# Testing
+frontend/coverage/
+
+# =========================
+# Misc
+# =========================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
