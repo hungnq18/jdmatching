@@ -12,11 +12,18 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: undefined
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          antd: ['antd'],
+          axios: ['axios']
+        }
       }
     }
   },
   server: {
     historyApiFallback: true
+  },
+  optimizeDeps: {
+    include: ['axios']
   }
 })

@@ -25,6 +25,7 @@ import {
   Typography,
   Upload
 } from 'antd';
+import axios from 'axios';
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import CandidateStatusManager from '../components/CandidateStatusManager';
@@ -133,16 +134,24 @@ const JobList = () => {
       
       console.log(`[loadMatchingCandidates] Starting for JD ID: ${jdId}`);
       
-      // Tạo axios instance riêng với timeout dài hơn cho matching
-      const matchingApi = axios.create({
-        baseURL: import.meta.env.VITE_API_URL || '.....',
-        timeout: 180000, // 3 phút cho matching
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      const response = await matchingApi.get(`/jd/${jdId}/candidates`);
+      // Check if axios is available, fallback to api instance
+      let response;
+      if (typeof axios !== 'undefined') {
+        // Tạo axios instance riêng với timeout dài hơn cho matching
+        const matchingApi = axios.create({
+          baseURL: import.meta.env.VITE_API_URL || 'https://jdmatching.onrender.com',
+          timeout: 180000, // 3 phút cho matching
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        response = await matchingApi.get(`/api/jd/${jdId}/candidates`);
+      } else {
+        // Fallback to api instance
+        console.warn('Axios not available, using api instance');
+        response = await api.get(`/api/jd/${jdId}/candidates`);
+      }
       
       console.log('🔍 API Response:', response.data);
       
