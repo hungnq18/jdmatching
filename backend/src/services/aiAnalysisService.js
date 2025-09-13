@@ -69,7 +69,7 @@ Hãy trích xuất các thông tin sau:
   "physical_strength": "Yêu cầu thể lực (tìm 'thể lực', 'sức khỏe', 'công việc nặng')",
   "special_requirements": "Yêu cầu đặc biệt (tìm 'Kiểm tra', 'Test', 'Thi tuyển')",
   "interview_method": "Hình thức thi tuyển (tìm 'Kiểm tra', 'Thi tuyển', 'Phỏng vấn')",
-  "interview_date": "Ngày phỏng vấn (tìm ngày tháng năm)",
+  "interview_date": "Ngày phỏng vấn (tìm ngày tháng năm, format: DD/MM/YYYY)",
   "entry_date": "Ngày nhập cảnh (tìm 'Tháng', 'năm', 'nhập cảnh')",
   "contract_duration": "Thời hạn hợp đồng (tìm 'năm', 'tháng', 'hợp đồng')",
   "training_period": "Thời gian đào tạo (tìm 'đào tạo', 'thực tập')",
@@ -96,6 +96,8 @@ QUY TẮC PHÂN TÍCH:
 3. Nếu không tìm thấy, để null
 4. Đảm bảo JSON hợp lệ
 5. Không thêm text ngoài JSON
+6. Với interview_date: chuyển đổi về format DD/MM/YYYY (ví dụ: "16/09/2025")
+7. Với các số: chuyển về dạng số nguyên (không có dấu phẩy, chấm)
 
 JSON Response:
 `;
@@ -200,6 +202,77 @@ JSON Response:
    */
   sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Parse date string từ AI response thành Date object
+   */
+  parseDateString(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') {
+      return null;
+    }
+
+    try {
+      // Loại bỏ khoảng trắng thừa
+      const cleaned = dateStr.trim();
+      
+      // Các pattern phổ biến cho ngày tháng tiếng Việt
+      const patterns = [
+        // DD / MM / YYYY hoặc DD/MM/YYYY
+        /^(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})$/,
+        // DD - MM - YYYY hoặc DD-MM-YYYY  
+        /^(\d{1,2})\s*-\s*(\d{1,2})\s*-\s*(\d{4})$/,
+        // DD . MM . YYYY hoặc DD.MM.YYYY
+        /^(\d{1,2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{4})$/,
+        // DD MM YYYY
+        /^(\d{1,2})\s+(\d{1,2})\s+(\d{4})$/,
+        // Ngày DD tháng MM năm YYYY
+        /^ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})$/i,
+        // DD/MM/YYYY
+        /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
+        // YYYY-MM-DD (ISO format)
+        /^(\d{4})-(\d{1,2})-(\d{1,2})$/
+      ];
+
+      for (const pattern of patterns) {
+        const match = cleaned.match(pattern);
+        if (match) {
+          let day, month, year;
+          
+          if (pattern === patterns[6]) {
+            // YYYY-MM-DD format
+            [, year, month, day] = match;
+          } else {
+            // DD/MM/YYYY format
+            [, day, month, year] = match;
+          }
+
+          // Tạo Date object (month - 1 vì Date constructor dùng 0-based month)
+          const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+          
+          // Validate date
+          if (date.getFullYear() == year && 
+              date.getMonth() == month - 1 && 
+              date.getDate() == day) {
+            console.log(`[DATE_PARSE] Successfully parsed: ${cleaned} -> ${date.toISOString()}`);
+            return date;
+          }
+        }
+      }
+
+      // Thử parse với Date constructor trực tiếp
+      const directParse = new Date(cleaned);
+      if (!isNaN(directParse.getTime())) {
+        console.log(`[DATE_PARSE] Direct parse success: ${cleaned} -> ${directParse.toISOString()}`);
+        return directParse;
+      }
+
+      console.log(`[DATE_PARSE] Failed to parse date: ${cleaned}`);
+      return null;
+    } catch (error) {
+      console.error(`[DATE_PARSE] Error parsing date: ${dateStr}`, error);
+      return null;
+    }
   }
 
   /**
@@ -408,7 +481,14 @@ JSON Response:
         if (filtered.length > 0) validFields++;
       } else if (typeof value === 'string') {
         const trimmed = value.trim();
-        cleaned[field] = trimmed || null;
+        
+        // Xử lý đặc biệt cho interview_date
+        if (field === 'interview_date') {
+          cleaned[field] = this.parseDateString(trimmed);
+        } else {
+          cleaned[field] = trimmed || null;
+        }
+        
         if (trimmed) validFields++;
       } else if (field === 'recruitment_number_needed' || field === 'annual_working_hours') {
         // Xử lý số

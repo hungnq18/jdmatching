@@ -27,6 +27,7 @@ import {
 } from 'antd';
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import CandidateStatusManager from '../components/CandidateStatusManager';
 import { useJobs } from "../context/JobContext";
 import api from '../utils/api';
 
@@ -1027,6 +1028,92 @@ const JobList = () => {
               }
             },
             {
+              title: 'Mạng xã hội',
+              dataIndex: 'socialMedia',
+              key: 'social_media',
+              render: (socialMedia) => {
+                if (!socialMedia) return <Text type="secondary">Chưa có</Text>;
+                
+                const socialLinks = [];
+                if (socialMedia.facebook) {
+                  socialLinks.push(
+                    <a 
+                      key="facebook"
+                      href={socialMedia.facebook} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      style={{ marginRight: 8, color: '#1877f2' }}
+                    >
+                      📘
+                    </a>
+                  );
+                }
+                if (socialMedia.linkedin) {
+                  socialLinks.push(
+                    <a 
+                      key="linkedin"
+                      href={socialMedia.linkedin} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      style={{ marginRight: 8, color: '#0077b5' }}
+                    >
+                      💼
+                    </a>
+                  );
+                }
+                if (socialMedia.zalo) {
+                  socialLinks.push(
+                    <a 
+                      key="zalo"
+                      href={socialMedia.zalo} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      style={{ marginRight: 8, color: '#0068ff' }}
+                    >
+                      💬
+                    </a>
+                  );
+                }
+                if (socialMedia.instagram) {
+                  socialLinks.push(
+                    <a 
+                      key="instagram"
+                      href={socialMedia.instagram} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      style={{ marginRight: 8, color: '#e4405f' }}
+                    >
+                      📷
+                    </a>
+                  );
+                }
+                
+                return socialLinks.length > 0 ? socialLinks : <Text type="secondary">Chưa có</Text>;
+              }
+            },
+            {
+              title: 'Tình trạng',
+              dataIndex: 'status',
+              key: 'status',
+              render: (status) => {
+                const statusConfig = {
+                  'available': { color: 'green', text: 'Sẵn sàng' },
+                  'interviewed': { color: 'orange', text: 'Đã phỏng vấn' },
+                  'hired': { color: 'blue', text: 'Đã tuyển' },
+                  'rejected': { color: 'red', text: 'Từ chối' },
+                  'pending': { color: 'default', text: 'Chờ xử lý' }
+                };
+                
+                const config = statusConfig[status] || { color: 'default', text: 'Chưa xác định' };
+                
+                return (
+                  <Tag color={config.color} size="small">
+                    {config.text}
+                  </Tag>
+                );
+              }
+            },
+            {
               title: 'Điểm phù hợp',
               dataIndex: 'matchScore',
               key: 'match_score',
@@ -1066,6 +1153,24 @@ const JobList = () => {
                   </div>
                 );
               }
+            },
+            {
+              title: 'Hành động',
+              key: 'actions',
+              render: (_, record) => (
+                <CandidateStatusManager 
+                  candidate={record} 
+                  onStatusUpdate={(candidateId, newStatus) => {
+                    setMatchingCandidates(prev => 
+                      prev.map(candidate => 
+                        candidate._id === candidateId 
+                          ? { ...candidate, status: newStatus }
+                          : candidate
+                      )
+                    );
+                  }}
+                />
+              )
             }
           ]}
           dataSource={matchingCandidates}
@@ -1138,6 +1243,105 @@ const JobList = () => {
                   <span style={{ marginLeft: 8, fontSize: '12px', color: '#666' }}>
                     ({selectedCandidate.matchedGroup || 'N/A'})
                   </span>
+                </p>
+                <p><strong>Tình trạng:</strong> 
+                  <Tag color={
+                    selectedCandidate.status === 'available' ? 'green' :
+                    selectedCandidate.status === 'interviewed' ? 'orange' :
+                    selectedCandidate.status === 'hired' ? 'blue' :
+                    selectedCandidate.status === 'rejected' ? 'red' :
+                    'default'
+                  } size="small" style={{ marginLeft: 8 }}>
+                    {selectedCandidate.status === 'available' ? 'Sẵn sàng' :
+                     selectedCandidate.status === 'interviewed' ? 'Đã phỏng vấn' :
+                     selectedCandidate.status === 'hired' ? 'Đã tuyển' :
+                     selectedCandidate.status === 'rejected' ? 'Từ chối' :
+                     selectedCandidate.status === 'pending' ? 'Chờ xử lý' :
+                     'Chưa xác định'}
+                  </Tag>
+                </p>
+                <p><strong>Mạng xã hội:</strong>
+                  <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {selectedCandidate.socialMedia?.facebook && (
+                      <a 
+                        href={selectedCandidate.socialMedia.facebook} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        style={{ 
+                          display: 'inline-flex', 
+                          alignItems: 'center', 
+                          padding: '4px 8px', 
+                          backgroundColor: '#1877f2', 
+                          color: 'white', 
+                          borderRadius: '4px', 
+                          textDecoration: 'none',
+                          fontSize: '12px'
+                        }}
+                      >
+                        📘 Facebook
+                      </a>
+                    )}
+                    {selectedCandidate.socialMedia?.linkedin && (
+                      <a 
+                        href={selectedCandidate.socialMedia.linkedin} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        style={{ 
+                          display: 'inline-flex', 
+                          alignItems: 'center', 
+                          padding: '4px 8px', 
+                          backgroundColor: '#0077b5', 
+                          color: 'white', 
+                          borderRadius: '4px', 
+                          textDecoration: 'none',
+                          fontSize: '12px'
+                        }}
+                      >
+                        💼 LinkedIn
+                      </a>
+                    )}
+                    {selectedCandidate.socialMedia?.zalo && (
+                      <a 
+                        href={selectedCandidate.socialMedia.zalo} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        style={{ 
+                          display: 'inline-flex', 
+                          alignItems: 'center', 
+                          padding: '4px 8px', 
+                          backgroundColor: '#0068ff', 
+                          color: 'white', 
+                          borderRadius: '4px', 
+                          textDecoration: 'none',
+                          fontSize: '12px'
+                        }}
+                      >
+                        💬 Zalo
+                      </a>
+                    )}
+                    {selectedCandidate.socialMedia?.instagram && (
+                      <a 
+                        href={selectedCandidate.socialMedia.instagram} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        style={{ 
+                          display: 'inline-flex', 
+                          alignItems: 'center', 
+                          padding: '4px 8px', 
+                          backgroundColor: '#e4405f', 
+                          color: 'white', 
+                          borderRadius: '4px', 
+                          textDecoration: 'none',
+                          fontSize: '12px'
+                        }}
+                      >
+                        📷 Instagram
+                      </a>
+                    )}
+                    {!selectedCandidate.socialMedia && (
+                      <span style={{ color: '#999', fontSize: '12px' }}>Chưa có thông tin</span>
+                    )}
+                  </div>
                 </p>
               </div>
             </div>

@@ -160,6 +160,8 @@ const JobDetail = () => {
                     <th className="p-3 border">Email</th>
                     <th className="p-3 border">Ngành nghề</th>
                     <th className="p-3 border">Mạng xã hội</th>
+                    <th className="p-3 border">Tình trạng</th>
+                    <th className="p-3 border">Điểm phù hợp</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -180,7 +182,89 @@ const JobDetail = () => {
                           {user.jobTitle}
                         </span>
                       </td>
-                      <td className="p-3 border">{user.socialNetwork}</td>
+                      <td className="p-3 border">
+                        <div className="flex flex-col space-y-1">
+                          {user.socialMedia?.facebook && (
+                            <a 
+                              href={user.socialMedia.facebook} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 text-xs"
+                            >
+                              📘 Facebook
+                            </a>
+                          )}
+                          {user.socialMedia?.linkedin && (
+                            <a 
+                              href={user.socialMedia.linkedin} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-blue-700 hover:text-blue-900 text-xs"
+                            >
+                              💼 LinkedIn
+                            </a>
+                          )}
+                          {user.socialMedia?.zalo && (
+                            <a 
+                              href={user.socialMedia.zalo} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-blue-500 hover:text-blue-700 text-xs"
+                            >
+                              💬 Zalo
+                            </a>
+                          )}
+                          {user.socialMedia?.instagram && (
+                            <a 
+                              href={user.socialMedia.instagram} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-pink-600 hover:text-pink-800 text-xs"
+                            >
+                              📷 Instagram
+                            </a>
+                          )}
+                          {!user.socialMedia && (
+                            <span className="text-gray-400 text-xs">Chưa có</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3 border">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          user.status === 'available' 
+                            ? 'bg-green-100 text-green-800' 
+                            : user.status === 'interviewed'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : user.status === 'hired'
+                            ? 'bg-blue-100 text-blue-800'
+                            : user.status === 'rejected'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {user.status === 'available' ? 'Sẵn sàng' :
+                           user.status === 'interviewed' ? 'Đã phỏng vấn' :
+                           user.status === 'hired' ? 'Đã tuyển' :
+                           user.status === 'rejected' ? 'Từ chối' :
+                           'Chưa xác định'}
+                        </span>
+                      </td>
+                      <td className="p-3 border">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-16 bg-gray-200 rounded-full h-2">
+                            <div 
+                              className={`h-2 rounded-full ${
+                                user.matchScore > 0.8 ? 'bg-green-500' :
+                                user.matchScore > 0.6 ? 'bg-yellow-500' :
+                                'bg-red-500'
+                              }`}
+                              style={{ width: `${(user.matchScore || 0) * 100}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-xs font-medium">
+                            {Math.round((user.matchScore || 0) * 100)}%
+                          </span>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
