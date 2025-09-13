@@ -131,7 +131,7 @@ const JobList = () => {
       
       // Tạo axios instance riêng với timeout dài hơn cho matching
       const matchingApi = axios.create({
-        baseURL: process.env.REACT_APP_API_URL || 'https://jdmatching.onrender.com/api',
+        baseURL: import.meta.env.VITE_API_URL || 'https://jdmatching.onrender.com/api',
         timeout: 180000, // 3 phút cho matching
         headers: {
           'Content-Type': 'application/json',
