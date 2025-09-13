@@ -16,13 +16,20 @@ const corsOptions = {
       'http://localhost:5173',
       'http://localhost:3000',
       'https://jdmatching-1.onrender.com',
+      'https://jdmatching-csoft.vercel.app',
       'https://c-soft-frontend.onrender.com',
       process.env.CORS_ORIGIN
     ].filter(Boolean);
     
+    // Allow Vercel preview deployments
+    if (origin && origin.includes('vercel.app')) {
+      return callback(null, true);
+    }
+    
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.log('🚫 CORS blocked origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
