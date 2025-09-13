@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: c-soft-backend
+    name: jdmatching
     env: node
     plan: free
     buildCommand: cd backend && npm install
@@ -13,16 +13,16 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: CORS_ORIGIN
-        value: https://c-soft-frontend.onrender.com
+        value: https://jdmatching-1.onrender.com
     healthCheckPath: /health
     autoDeploy: true
 
   - type: web
-    name: c-soft-frontend
+    name: jdmatching-1
     env: static
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: frontend/dist
     envVars:
-      - key: REACT_APP_API_URL
-        value: https://c-soft-backend.onrender.com/api
+      - key: VITE_API_URL
+        value: https://jdmatching.onrender.com/api
     autoDeploy: true

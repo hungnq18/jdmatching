@@ -9,6 +9,7 @@ function App() {
         <Route path="/" element={<JobList />} />
         <Route path="/jobs" element={<JobList />} />
         <Route path="/jobs/:id" element={<JobDetail />} />
+        <Route path="*" element={<JobList />} />
       </Routes>
     </BrowserRouter>
   );
