@@ -43,6 +43,21 @@ if (!fs.existsSync(uploadDir)) {
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
+// Root endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({
+    message: 'C-Soft Backend API is running!',
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    endpoints: {
+      health: '/health',
+      api: '/api',
+      jd: '/api/jd'
+    }
+  });
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({
