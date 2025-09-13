@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import API from "./api/api";
-import axiosClient from "./api/axiosClient";
+import api from "../utils/api";
 
 const JobContext = createContext();
 
@@ -12,8 +11,8 @@ export const JobProvider = ({ children }) => {
   const fetchJobs = async () => {
     try {
       setLoading(true);
-      const res = await axiosClient.get(API.JOBS.LIST);
-      setJobs(res.data);
+      const res = await api.get('/jd');
+      setJobs(res.data.data.jds || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -23,8 +22,17 @@ export const JobProvider = ({ children }) => {
 
   const addJob = async (job) => {
     try {
-      const res = await axiosClient.post(API.JOBS.LIST, job);
+      const res = await api.post('/jd', job);
       setJobs((prev) => [...prev, res.data]);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const deleteJob = async (id) => {
+    try {
+      await api.delete(`/jd/${id}`);
+      setJobs((prev) => prev.filter(job => job._id !== id));
     } catch (err) {
       setError(err.message);
     }
@@ -35,7 +43,7 @@ export const JobProvider = ({ children }) => {
   }, []);
 
   return (
-    <JobContext.Provider value={{ jobs, loading, error, addJob, fetchJobs }}>
+    <JobContext.Provider value={{ jobs, loading, error, addJob, fetchJobs, deleteJob }}>
       {children}
     </JobContext.Provider>
   );

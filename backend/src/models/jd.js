@@ -40,6 +40,10 @@ insurance_and_tax: { type: String }, // Bảo hiểm và thuế
 working_hours: { type: String }, // Thời gian làm việc
 rest_days: { type: String }, // Ngày nghỉ
 annual_working_hours: { type: Number }, // Số giờ làm việc trong năm
-dormitory_info: { type: String } // Thông tin KTX
+dormitory_info: { type: String }, // Thông tin KTX
+original_text: { type: String }, // Text gốc của JD
+candidate_requirements: { type: Object }, // Yêu cầu ứng viên đã phân tích
+uploaded_file: { type: String }, // Tên file đã upload
+analysis_status: { type: String, enum: ['pending', 'processing', 'completed', 'failed'], default: 'pending' } // Trạng thái phân tích
 }, { timestamps: true });
 module.exports = mongoose.model('JobDescription', jdSchema);

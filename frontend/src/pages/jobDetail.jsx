@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import API from "../context/api/api";
-import axiosClient from "../context/api/axiosClient";
+import api from "../utils/api";
 
 const JobDetail = () => {
   const { id } = useParams();
@@ -21,8 +20,16 @@ const JobDetail = () => {
 
     const fetchJob = async () => {
       try {
-        const res = await axiosClient.get(API.JOBS.DETAIL(id));
-        setJob(res.data);
+        console.log(`[JobDetail] Fetching job details for ID: ${id}`);
+        const res = await api.get(`/jd/${id}`);
+        
+        console.log('[JobDetail] Job response:', res.data);
+        
+        if (res.data.success) {
+          setJob(res.data.data);
+        } else {
+          console.error('[JobDetail] Job API Error:', res.data.message);
+        }
       } catch (err) {
         console.error("Lỗi khi lấy job:", err);
       } finally {
@@ -32,10 +39,25 @@ const JobDetail = () => {
 
     const fetchCandidates = async () => {
       try {
-        const res = await axiosClient.get(API.CANDIDATES.LIST(id));
-        setCandidates(res.data.matchedUsers || []);
+        console.log(`[JobDetail] Fetching candidates for JD ID: ${id}`);
+        const res = await api.get(`/jd/${id}/candidates`);
+        
+        console.log('[JobDetail] Candidates response:', res.data);
+        
+        if (res.data.success) {
+          setCandidates(res.data.data.candidates || []);
+        } else {
+          console.error('[JobDetail] API Error:', res.data.message);
+        }
       } catch (err) {
         console.error("Lỗi khi lấy ứng viên:", err);
+        
+        // More specific error handling
+        if (err.response?.status === 404) {
+          console.error('JD not found or no candidates');
+        } else if (err.response?.status === 500) {
+          console.error('Server error when fetching candidates');
+        }
       } finally {
         setLoadingCandidates(false);
       }

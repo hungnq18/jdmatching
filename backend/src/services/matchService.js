@@ -1,13 +1,400 @@
-const fs = require("fs");
-const readline = require("readline");
 const pLimit = require("p-limit");
 const stringSimilarity = require("string-similarity");
 const User = require("../models/user");
 const JD = require("../models/jd");
-const JobGroup = require("../models/visaType"); // chứa nhóm ngành + visa_type
+const JobGroup = require("../models/visaType");
 const { getJDById } = require("./jdService");
+const aiAnalysisService = require("./aiAnalysisService");
 
-// ---- util ----
+// ============================================
+// AI MATCHING FUNCTIONS
+// ============================================
+
+// Rate limiting cho AI requests
+let aiRequestCount = 0;
+let lastResetTime = Date.now();
+const maxAIRequestsPerMinute = 10; // Conservative rate limit
+
+/**
+ * Reset AI request counter mỗi phút
+ */
+function resetAIRequestCounter() {
+  const now = Date.now();
+  if (now - lastResetTime >= 60000) {
+    aiRequestCount = 0;
+    lastResetTime = now;
+  }
+}
+
+/**
+ * Tính điểm phù hợp giữa ứng viên và JD bằng AI
+ * @param {string} jdText - Nội dung Job Description
+ * @param {Object} userProfile - Thông tin ứng viên
+ * @param {Object} jdDetail - Chi tiết JD từ database
+ * @returns {Promise<number>} Điểm từ 0.0 đến 1.0
+ */
+async function calculateAIMatchScore(jdText, userProfile, jdDetail) {
+  try {
+    // Reset counter nếu cần
+    resetAIRequestCounter();
+    
+    // Kiểm tra rate limit
+    if (aiRequestCount >= maxAIRequestsPerMinute) {
+      console.log(`[AI_RATE_LIMIT] Reached ${maxAIRequestsPerMinute} requests per minute, using fallback`);
+      throw new Error('Rate limit reached');
+    }
+    
+    aiRequestCount++;
+    
+    // Tạo prompt ngắn gọn hơn để tiết kiệm tokens
+    const prompt = `Đánh giá độ phù hợp ứng viên với JD (0.0-1.0):
+
+JD: ${jdText.substring(0, 500)}...
+Visa: ${jdDetail.visa_type || 'N/A'}
+Tuổi: ${jdDetail.age_range || 'N/A'}
+Giới tính yêu cầu: ${jdDetail.gender || 'N/A'}
+
+Ứng viên:
+- Tên: ${userProfile.fullName || 'N/A'}
+- Tuổi: ${userProfile.birthDate ? calculateAge(userProfile.birthDate) : 'N/A'}
+- Giới tính: ${userProfile.gender || 'N/A'} (男=Nam, 女=Nữ)
+- Công việc: ${userProfile.jobTitle || 'N/A'}
+- Visa: ${userProfile.dispatchType || 'N/A'}
+
+Lưu ý: 男=Nam, 女=Nữ. Chỉ trả về số từ 0.0 đến 1.0:`;
+
+    const response = await aiAnalysisService.callAI(prompt);
+    const score = parseFloat(response.trim());
+    
+    // Đảm bảo score trong khoảng 0-1
+    return isNaN(score) ? 0.5 : Math.max(0, Math.min(1, score));
+  } catch (error) {
+    console.error('Error calculating AI match score:', error);
+    return 0.5; // Default score nếu có lỗi
+  }
+}
+
+/**
+ * Tính tuổi từ ngày sinh
+ * @param {string} birthDate - Ngày sinh (dd/mm/yyyy)
+ * @returns {string|number} Tuổi hoặc 'N/A'
+ */
+function calculateAge(birthDate) {
+  if (!birthDate) return 'N/A';
+  try {
+    const today = new Date();
+    const birth = new Date(birthDate.split('/').reverse().join('-'));
+    return today.getFullYear() - birth.getFullYear();
+  } catch (error) {
+    return 'N/A';
+  }
+}
+
+/**
+ * Tính điểm fallback khi AI không khả dụng
+ * @param {Object} user - Thông tin user
+ * @param {Object} jdDetail - Chi tiết JD
+ * @param {number} baseScore - Điểm cơ bản từ string similarity
+ * @returns {number} Điểm từ 0.0 đến 1.0
+ */
+function calculateFallbackScore(user, jdDetail, baseScore) {
+  let score = baseScore || 0.5; // Bắt đầu với string similarity score
+  
+  // Parse conditions từ JD description
+  const parsedConditions = parseJDConditions(jdDetail.job_description || '');
+  
+  // Tracking criteria matching
+  const criteriaResults = [];
+  let criticalCriteriaCount = 0;
+  let criticalMatchedCount = 0;
+  
+  // 1. Kiểm tra giới tính (CRITICAL - Only if required in JD description)
+  const jdGender = jdDetail.gender || parsedConditions.gender;
+  if (jdGender && user.gender && parsedConditions.gender_required) {
+    criticalCriteriaCount++;
+    const normalizedJdGender = normalizeGender(jdGender);
+    const userGender = normalizeGender(user.gender);
+    
+    console.log(`[GENDER_CHECK] JD: "${jdGender}" -> "${normalizedJdGender}", User: "${user.gender}" -> "${userGender}"`);
+    
+    // Kiểm tra các trường hợp phù hợp
+    const isGenderMatch = 
+      normalizedJdGender === userGender || 
+      normalizedJdGender === 'any' ||
+      normalizedJdGender === '' ||
+      !normalizedJdGender;
+    
+    if (isGenderMatch) {
+      criticalMatchedCount++;
+      score += 0.1;
+      console.log(`[GENDER_MATCH] Bonus +0.1 for gender match`);
+    } else {
+      console.log(`[GENDER_MISMATCH] No bonus for gender mismatch`);
+    }
+    
+    criteriaResults.push({
+      name: 'Giới tính',
+      required: true,
+      matched: isGenderMatch,
+      weight: 0.1,
+      details: `JD: ${jdGender}, User: ${user.gender}`
+    });
+  }
+  
+  // 2. Kiểm tra độ tuổi (CRITICAL - Only if required in JD description)
+  const ageRange = jdDetail.age_range || parsedConditions.age_range;
+  if (ageRange && user.birthDate && parsedConditions.age_required) {
+    criticalCriteriaCount++;
+    const userAge = calculateAge(user.birthDate);
+    if (typeof userAge === 'number') {
+      const ageMatch = parseAgeRange(ageRange);
+      if (ageMatch.minAge && ageMatch.maxAge) {
+        const isAgeMatch = userAge >= ageMatch.minAge && userAge <= ageMatch.maxAge;
+        if (isAgeMatch) {
+          criticalMatchedCount++;
+          score += 0.15;
+        } else {
+          // Penalty nếu ngoài độ tuổi
+          score -= 0.1;
+        }
+        
+        criteriaResults.push({
+          name: 'Độ tuổi',
+          required: true,
+          matched: isAgeMatch,
+          weight: 0.15,
+          details: `User: ${userAge} tuổi, JD: ${ageMatch.minAge}-${ageMatch.maxAge} tuổi`
+        });
+      }
+    }
+  }
+  
+  // 3. Kiểm tra loại visa (CRITICAL - Only if required in JD description)
+  const visaType = jdDetail.visa_type || parsedConditions.visa_type;
+  if (visaType && user.dispatchType && parsedConditions.visa_critical) {
+    criticalCriteriaCount++;
+    const jdVisa = normalize(visaType);
+    const userVisa = normalize(user.dispatchType);
+    const isVisaMatch = jdVisa === userVisa;
+    
+    if (isVisaMatch) {
+      criticalMatchedCount++;
+      score += 0.2;
+    }
+    
+    criteriaResults.push({
+      name: 'Loại visa',
+      required: true,
+      matched: isVisaMatch,
+      weight: 0.2,
+      details: `JD: ${visaType}, User: ${user.dispatchType}`
+    });
+  }
+  
+  // 4. Kiểm tra kinh nghiệm (CRITICAL - Only if required in JD description)
+  if (user.contractDuration && parsedConditions.experience_critical) {
+    const duration = user.contractDuration.toLowerCase();
+    if (duration.includes('năm') || duration.includes('year')) {
+      const years = parseInt(duration.match(/(\d+)/)?.[1] || '0');
+      const hasExperience = years >= 2;
+      
+      if (parsedConditions.experience_required === false) {
+        // JD không yêu cầu kinh nghiệm - bonus cho người mới
+        const isNewbie = years < 2;
+        if (isNewbie) {
+          criticalMatchedCount++;
+          score += 0.1;
+        }
+        
+        criteriaResults.push({
+          name: 'Không yêu cầu kinh nghiệm',
+          required: true,
+          matched: isNewbie,
+          weight: 0.1,
+          details: `JD: Không yêu cầu, User: ${years} năm`
+        });
+      } else {
+        // JD yêu cầu kinh nghiệm
+        if (hasExperience) {
+          criticalMatchedCount++;
+          score += 0.1;
+        }
+        
+        criteriaResults.push({
+          name: 'Kinh nghiệm',
+          required: true,
+          matched: hasExperience,
+          weight: 0.1,
+          details: `JD: Yêu cầu kinh nghiệm, User: ${years} năm`
+        });
+      }
+      
+      criticalCriteriaCount++;
+    }
+  }
+  
+  // 5. Kiểm tra thời gian hợp đồng còn lại (BONUS)
+  if (user.entryDate && user.contractDuration) {
+    const endDate = calculateContractEndDate(user.entryDate, user.contractDuration);
+    if (endDate) {
+      const diffYears = (endDate - new Date()) / (1000 * 60 * 60 * 24 * 365);
+      const contractExpiring = diffYears > 0 && diffYears <= 1;
+      
+      if (contractExpiring) {
+        score += 0.15; // Bonus cho hợp đồng sắp hết hạn
+      }
+      
+      criteriaResults.push({
+        name: 'Hợp đồng sắp hết hạn',
+        required: false,
+        matched: contractExpiring,
+        weight: 0.15,
+        details: `Còn ${diffYears.toFixed(1)} năm`
+      });
+    }
+  }
+  
+  // 6. Kiểm tra kỹ năng đặc biệt (INFORMATIONAL - Show missing skills to user)
+  if (parsedConditions.special_skills && parsedConditions.special_skills.length > 0) {
+    const userSkills = normalize(user.jobTitle || '');
+    const userDescription = normalize(user.description || '');
+    const combinedUserText = `${userSkills} ${userDescription}`;
+    let skillMatchCount = 0;
+    let missingSkills = [];
+    
+    for (const skill of parsedConditions.special_skills) {
+      const skillNorm = normalize(skill);
+      if (combinedUserText.includes(skillNorm) || 
+          combinedUserText.includes('lắp ráp') || 
+          combinedUserText.includes('lap rap') ||
+          combinedUserText.includes('assembly') ||
+          combinedUserText.includes('hàn') ||
+          combinedUserText.includes('han') ||
+          combinedUserText.includes('welding') ||
+          combinedUserText.includes('máy') ||
+          combinedUserText.includes('may') ||
+          combinedUserText.includes('machine')) {
+        skillMatchCount++;
+      } else {
+        missingSkills.push(skill);
+      }
+    }
+    
+    // Bonus cho kỹ năng phù hợp (không bắt buộc)
+    if (skillMatchCount > 0) {
+      score += 0.05 * skillMatchCount; // Giảm weight vì không bắt buộc
+      console.log(`[SKILL_MATCH] Bonus +${(0.05 * skillMatchCount).toFixed(2)} for ${skillMatchCount} skill matches`);
+    }
+    
+    criteriaResults.push({
+      name: 'Kỹ năng đặc biệt',
+      required: false, // Không bắt buộc
+      matched: skillMatchCount > 0,
+      weight: 0.05 * skillMatchCount,
+      details: `JD yêu cầu: ${parsedConditions.special_skills.join(', ')}, User có: ${skillMatchCount}/${parsedConditions.special_skills.length} kỹ năng`,
+      missingSkills: missingSkills // Thông tin kỹ năng thiếu
+    });
+  }
+  
+  // 7. Kiểm tra điều kiện làm việc (INFORMATIONAL - Show to user)
+  if (parsedConditions.working_conditions_critical) {
+    const userContract = normalize(user.contractDuration || '');
+    const hasWorkingConditions = userContract.includes('ca') || userContract.includes('shift') || 
+                                userContract.includes('overtime') || userContract.includes('tăng ca');
+    
+    if (hasWorkingConditions) {
+      score += 0.05; // Giảm weight vì không bắt buộc
+    }
+    
+    criteriaResults.push({
+      name: 'Điều kiện làm việc',
+      required: false, // Không bắt buộc
+      matched: hasWorkingConditions,
+      weight: 0.05,
+      details: `JD yêu cầu điều kiện làm việc đặc biệt, User: ${hasWorkingConditions ? 'Có' : 'Không có'}`
+    });
+  }
+  
+  // 8. Kiểm tra yêu cầu thể chất (INFORMATIONAL - Show to user)
+  if (parsedConditions.physical_critical) {
+    // Giả sử user có sức khỏe tốt nếu không có thông tin ngược lại
+    const hasPhysicalRequirements = true; // Có thể cải thiện bằng cách check health records
+    
+    if (hasPhysicalRequirements) {
+      score += 0.05; // Giảm weight vì không bắt buộc
+    }
+    
+    criteriaResults.push({
+      name: 'Yêu cầu thể chất',
+      required: false, // Không bắt buộc
+      matched: hasPhysicalRequirements,
+      weight: 0.05,
+      details: `JD yêu cầu sức khỏe tốt, User: ${hasPhysicalRequirements ? 'Đạt' : 'Không đạt'}`
+    });
+  }
+  
+  // 9. Kiểm tra yêu cầu địa điểm (INFORMATIONAL - Show to user)
+  if (parsedConditions.location_critical) {
+    const userLocation = normalize(user.location || '');
+    const jdLocation = normalize(jdDetail.location || '');
+    const locationMatch = userLocation.includes(jdLocation) || jdLocation.includes(userLocation) || 
+                         userLocation === '' || jdLocation === '';
+    
+    if (locationMatch) {
+      score += 0.05; // Giảm weight vì không bắt buộc
+    }
+    
+    criteriaResults.push({
+      name: 'Địa điểm làm việc',
+      required: false, // Không bắt buộc
+      matched: locationMatch,
+      weight: 0.05,
+      details: `JD: ${jdDetail.location || 'N/A'}, User: ${user.location || 'N/A'}`
+    });
+  }
+  
+  
+  // Ensure score is within bounds
+  score = Math.max(0, Math.min(1, score));
+  
+  // Check if main criteria are met (gender + age only)
+  const mainCriteriaCount = (parsedConditions.gender_required ? 1 : 0) + (parsedConditions.age_required ? 1 : 0);
+  
+  // Check gender match
+  const genderMatch = !parsedConditions.gender_required || 
+                     (jdGender && user.gender && normalizeGender(jdGender) === normalizeGender(user.gender));
+  
+  // Check age match  
+  const ageMatch = !parsedConditions.age_required || 
+                  (ageRange && user.birthDate && checkAgeMatch(user.birthDate, ageRange));
+  
+  const mainCriteriaMatched = genderMatch && ageMatch;
+  
+  // Only check main criteria, ignore other criteria for acceptance
+  const allCriticalMatched = mainCriteriaCount === 0 || mainCriteriaMatched;
+  
+  console.log(`[MAIN_CRITERIA_CHECK] user=${user._id}: gender_match=${genderMatch}, age_match=${ageMatch}, main_criteria=${mainCriteriaMatched}`);
+  
+  console.log(`[FALLBACK_SCORE] user=${user._id}, base=${baseScore?.toFixed(2)}, final=${score.toFixed(2)}, main_criteria=${mainCriteriaMatched} (${mainCriteriaCount} required), allCritical=${allCriticalMatched}`);
+  
+  return {
+    score: score,
+    allCriticalMatched: allCriticalMatched,
+    criteriaResults: criteriaResults,
+    criticalCriteria: criticalCriteriaCount,
+    criticalMatched: criticalMatchedCount
+  };
+}
+
+// ============================================
+// UTILITY FUNCTIONS
+// ============================================
+
+/**
+ * Loại bỏ dấu tiếng Việt
+ * @param {string} str - Chuỗi cần xử lý
+ * @returns {string} Chuỗi đã loại bỏ dấu
+ */
 function removeVietnameseTones(str = "") {
   return str
     .normalize("NFD")
@@ -15,15 +402,11 @@ function removeVietnameseTones(str = "") {
     .replace(/đ/g, "d")
     .replace(/Đ/g, "D");
 }
-function parseAgeRange(ageRangeStr) {
-  if (!ageRangeStr) return {};
-  const match = ageRangeStr.match(/(\d+)\s*~\s*(\d+)/);
-  if (match) {
-    return { minAge: parseInt(match[1], 10), maxAge: parseInt(match[2], 10) };
-  }
-  return {};
-}
-
+/**
+ * Parse ngày tháng từ chuỗi
+ * @param {string} dateStr - Chuỗi ngày tháng
+ * @returns {Date|null} Ngày đã parse hoặc null
+ */
 function parseEntryDate(dateStr) {
   if (!dateStr) return null;
 
@@ -31,7 +414,7 @@ function parseEntryDate(dateStr) {
   const date = new Date(dateStr);
   if (!isNaN(date)) return date;
 
-  // Nếu không parse được, thử các định dạng phổ biến khác (dd/mm/yyyy, dd-mm-yyyy)
+  // Thử các định dạng phổ biến (dd/mm/yyyy, dd-mm-yyyy)
   const parts = dateStr.split(/[\/\-\.]/);
   if (parts.length === 3) {
     let day = parseInt(parts[0], 10);
@@ -45,39 +428,369 @@ function parseEntryDate(dateStr) {
     if (!isNaN(parsedDate)) return parsedDate;
   }
 
-  // Nếu vẫn không parse được
   return null;
 }
-function parseBirthDate(dateStr) {
-  if (!dateStr) return null;
-  const parts = dateStr.split(/[\/\-\.]/);
-  if (parts.length === 3) {
-    const [day, month, year] = parts.map(Number);
-    return new Date(year, month - 1, day);
-  }
-  const d = new Date(dateStr);
-  return isNaN(d) ? null : d;
-}
 
+/**
+ * Chuẩn hóa text (loại bỏ dấu, lowercase, trim, xử lý tiếng Nhật)
+ * @param {string} text - Text cần chuẩn hóa
+ * @returns {string} Text đã chuẩn hóa
+ */
 function normalize(text = "") {
-  return removeVietnameseTones(String(text).toLowerCase().trim());
+  let normalized = removeVietnameseTones(String(text).toLowerCase().trim());
+  
+  // Xử lý tiếng Nhật
+  normalized = normalized
+    .replace(/男/g, 'nam')
+    .replace(/女/g, 'nu')
+    .replace(/男性/g, 'nam')
+    .replace(/女性/g, 'nu')
+    .replace(/male/g, 'nam')
+    .replace(/female/g, 'nu')
+    .replace(/m/g, 'nam')
+    .replace(/f/g, 'nu');
+  
+  return normalized;
 }
 
-// Hàm ánh xạ giới tính
+/**
+ * Parse age range từ string (vd: "18 ~ 35")
+ * @param {string} ageRangeStr - Chuỗi độ tuổi
+ * @returns {Object} Object chứa minAge và maxAge
+ */
+function parseAgeRange(ageRangeStr) {
+  if (!ageRangeStr) return {};
+  const match = ageRangeStr.match(/(\d+)\s*~\s*(\d+)/);
+  if (match) {
+    return { minAge: parseInt(match[1], 10), maxAge: parseInt(match[2], 10) };
+  }
+  return {};
+}
+
+/**
+ * Chuẩn hóa giới tính (xử lý tiếng Nhật, tiếng Việt, tiếng Anh)
+ * @param {string} gender - Giới tính cần chuẩn hóa
+ * @returns {string} Giới tính đã chuẩn hóa (nam/nu)
+ */
 function normalizeGender(gender = "") {
+  if (!gender) return 'any';
+  
+  const genderStr = String(gender).toLowerCase().trim();
+  
+  // Mapping cho các ngôn ngữ khác nhau
   const genderMap = {
-    'nam': 'nam',
-    'nữ': 'nữ',
+    // Tiếng Nhật
     '男': 'nam',
-    '女': 'nữ',
+    '女': 'nu',
+    '男性': 'nam',
+    '女性': 'nu',
+    'おとこ': 'nam',
+    'おんな': 'nu',
+    'otoko': 'nam',
+    'onna': 'nu',
+    
+    // Tiếng Việt
+    'nam': 'nam',
+    'nữ': 'nu',
+    'nu': 'nu',
+    'nam giới': 'nam',
+    'nữ giới': 'nu',
+    'nam gioi': 'nam',
+    'nu gioi': 'nu',
+    
+    // Tiếng Anh
     'male': 'nam',
-    'female': 'nữ'
+    'female': 'nu',
+    'm': 'nam',
+    'f': 'nu',
+    'man': 'nam',
+    'woman': 'nu',
+    
+    // Không yêu cầu
+    'không yêu cầu': 'any',
+    'khong yeu cau': 'any',
+    'any': 'any',
+    'all': 'any',
+    'both': 'any',
+    'không': 'any',
+    'khong': 'any'
   };
-  const normalized = normalize(gender);
-  return genderMap[normalized] || normalized;
+  
+  // Try exact match first
+  if (genderMap[genderStr]) {
+    return genderMap[genderStr];
+  }
+  
+  // Try partial matching for complex strings
+  if (genderStr.includes('nam') || genderStr.includes('male') || genderStr.includes('男')) {
+    return 'nam';
+  }
+  if (genderStr.includes('nu') || genderStr.includes('nữ') || genderStr.includes('female') || genderStr.includes('女')) {
+    return 'nu';
+  }
+  if (genderStr.includes('any') || genderStr.includes('all') || genderStr.includes('không')) {
+    return 'any';
+  }
+  
+  return 'any';
 }
 
-// Tính ngày kết thúc hợp đồng dựa trên entryDate và duration
+/**
+ * Parse điều kiện từ mô tả JD
+ * @param {string} description - Mô tả công việc
+ * @returns {Object} Các điều kiện đã parse
+ */
+function parseJDConditions(description) {
+  if (!description) return {};
+  
+  const conditions = {};
+  const desc = normalize(description);
+  
+  console.log(`[JD_PARSING] Analyzing description: "${description.substring(0, 200)}..."`);
+  
+  // 1. Parse giới tính từ mô tả (CRITICAL - Required if specified)
+  const genderPatterns = [
+    { pattern: /nam|男性|男|male/i, value: 'nam' },
+    { pattern: /nữ|女性|女|female/i, value: 'nu' },
+    { pattern: /không phân biệt|khong phan biet|any|all/i, value: 'any' }
+  ];
+  
+  for (const { pattern, value } of genderPatterns) {
+    if (pattern.test(desc)) {
+      conditions.gender = value;
+      conditions.gender_required = true;
+      console.log(`[GENDER_PARSED] Found gender requirement: ${value}`);
+      break;
+    }
+  }
+  
+  // 2. Parse độ tuổi từ mô tả (CRITICAL - Required if specified)
+  const agePatterns = [
+    /(\d+)\s*[-~]\s*(\d+)\s*tuổi/i,
+    /(\d+)\s*[-~]\s*(\d+)\s*tuoi/i,
+    /(\d+)\s*[-~]\s*(\d+)\s*years?/i,
+    /(\d+)\s*[-~]\s*(\d+)\s*歳/i,
+    /tuổi\s*(\d+)\s*[-~]\s*(\d+)/i,
+    /age\s*(\d+)\s*[-~]\s*(\d+)/i
+  ];
+  
+  for (const pattern of agePatterns) {
+    const match = desc.match(pattern);
+    if (match) {
+      conditions.age_range = `${match[1]} ~ ${match[2]}`;
+      conditions.age_required = true;
+      console.log(`[AGE_PARSED] Found age requirement: ${conditions.age_range}`);
+      break;
+    }
+  }
+  
+  // 3. Parse kinh nghiệm (CRITICAL - Required if specified)
+  if (desc.includes('không yêu cầu kinh nghiệm') || desc.includes('khong yeu cau kinh nghiem') || 
+      desc.includes('no experience') || desc.includes('mới') || desc.includes('moi')) {
+    conditions.experience_required = false;
+    conditions.experience_critical = true;
+    console.log(`[EXPERIENCE_PARSED] No experience required`);
+  } else if (desc.includes('kinh nghiệm') || desc.includes('kinh nghiem') || 
+             desc.includes('experience') || desc.includes('経験') ||
+             desc.match(/\d+\s*năm\s*kinh\s*nghiệm/i) || desc.match(/\d+\s*years?\s*experience/i)) {
+    conditions.experience_required = true;
+    conditions.experience_critical = true;
+    console.log(`[EXPERIENCE_PARSED] Experience required`);
+  }
+  
+  // 4. Parse trình độ học vấn (CRITICAL - Required if specified)
+  const educationPatterns = [
+    /tốt nghiệp|tot nghiep|graduated/i,
+    /bằng cấp|bang cap|certificate/i,
+    /trình độ|trinh do|level/i,
+    /học vấn|hoc van|education/i,
+    /bằng|bang|degree/i
+  ];
+  
+  for (const pattern of educationPatterns) {
+    if (pattern.test(desc)) {
+      conditions.education_required = true;
+      conditions.education_critical = true;
+      console.log(`[EDUCATION_PARSED] Education required`);
+      break;
+    }
+  }
+  
+  // 5. Parse kỹ năng đặc biệt (CRITICAL - Required if specified)
+  const specialSkills = [];
+  const skillPatterns = [
+    { pattern: /kiểm tra iq|kiem tra iq|iq test/i, skill: 'IQ Test' },
+    { pattern: /lắp ráp|lap rap|assembly/i, skill: 'Assembly' },
+    { pattern: /vặn ốc vít|van oc vit|screw/i, skill: 'Screw Assembly' },
+    { pattern: /hàn|han|welding/i, skill: 'Welding' },
+    { pattern: /máy|may|machine/i, skill: 'Machine Operation' },
+    { pattern: /kiểm tra|kiem tra|inspection/i, skill: 'Quality Control' },
+    { pattern: /vận hành|van hanh|operation/i, skill: 'Equipment Operation' },
+    { pattern: /bảo trì|bao tri|maintenance/i, skill: 'Maintenance' },
+    { pattern: /an toàn|an toan|safety/i, skill: 'Safety Awareness' },
+    { pattern: /tiếng nhật|tieng nhat|japanese/i, skill: 'Japanese Language' },
+    { pattern: /tiếng anh|tieng anh|english/i, skill: 'English Language' }
+  ];
+  
+  for (const { pattern, skill } of skillPatterns) {
+    if (pattern.test(desc)) {
+      specialSkills.push(skill);
+    }
+  }
+  
+  if (specialSkills.length > 0) {
+    conditions.special_skills = specialSkills;
+    conditions.skills_critical = true;
+    console.log(`[SKILLS_PARSED] Found skills: ${specialSkills.join(', ')}`);
+  }
+  
+  // 6. Parse visa type requirements (CRITICAL - Required if specified)
+  const visaPatterns = [
+    /visa|thị thực|thi thuc/i,
+    /giấy phép|giay phep|permit/i,
+    /tư cách|tu cach|status/i,
+    /lao động|lao dong|labor/i,
+    /kỹ thuật|ky thuat|technical/i,
+    /thực tập|thuc tap|intern/i
+  ];
+  
+  for (const pattern of visaPatterns) {
+    if (pattern.test(desc)) {
+      conditions.visa_required = true;
+      conditions.visa_critical = true;
+      console.log(`[VISA_PARSED] Visa requirements found`);
+      break;
+    }
+  }
+  
+  // 7. Parse contract duration requirements (CRITICAL - Required if specified)
+  const contractPatterns = [
+    /hợp đồng|hop dong|contract/i,
+    /thời gian|thoi gian|duration/i,
+    /năm|year|年/i,
+    /tháng|month|月/i,
+    /dài hạn|dai han|long term/i,
+    /ngắn hạn|ngan han|short term/i
+  ];
+  
+  for (const pattern of contractPatterns) {
+    if (pattern.test(desc)) {
+      conditions.contract_required = true;
+      conditions.contract_critical = true;
+      console.log(`[CONTRACT_PARSED] Contract requirements found`);
+      break;
+    }
+  }
+  
+  // 8. Parse working conditions (CRITICAL - Required if specified)
+  const workingPatterns = [
+    /ca đêm|ca dem|night shift/i,
+    /ca ngày|ca ngay|day shift/i,
+    /tăng ca|tang ca|overtime/i,
+    /cuối tuần|cuoi tuan|weekend/i,
+    /nghỉ phép|nghi phep|vacation/i,
+    /bảo hiểm|bao hiem|insurance/i
+  ];
+  
+  for (const pattern of workingPatterns) {
+    if (pattern.test(desc)) {
+      conditions.working_conditions_required = true;
+      conditions.working_conditions_critical = true;
+      console.log(`[WORKING_PARSED] Working conditions found`);
+      break;
+    }
+  }
+  
+  // 9. Parse physical requirements (CRITICAL - Required if specified)
+  const physicalPatterns = [
+    /sức khỏe|suc khoe|health/i,
+    /thể lực|the luc|physical/i,
+    /chiều cao|chieu cao|height/i,
+    /cân nặng|can nang|weight/i,
+    /không tật|khong tat|no disability/i,
+    /mắt tốt|mat tot|good vision/i
+  ];
+  
+  for (const pattern of physicalPatterns) {
+    if (pattern.test(desc)) {
+      conditions.physical_required = true;
+      conditions.physical_critical = true;
+      console.log(`[PHYSICAL_PARSED] Physical requirements found`);
+      break;
+    }
+  }
+  
+  // 10. Parse location requirements (CRITICAL - Required if specified)
+  const locationPatterns = [
+    /tại|tai|at|location/i,
+    /địa điểm|dia diem|place/i,
+    /khu vực|khu vuc|area/i,
+    /tỉnh|tinh|province/i,
+    /thành phố|thanh pho|city/i,
+    /gần|gan|near/i,
+    /xa|far/i
+  ];
+  
+  for (const pattern of locationPatterns) {
+    if (pattern.test(desc)) {
+      conditions.location_required = true;
+      conditions.location_critical = true;
+      console.log(`[LOCATION_PARSED] Location requirements found`);
+      break;
+    }
+  }
+  
+  // Log summary of parsed conditions
+  const criticalCount = Object.keys(conditions).filter(key => key.includes('_critical') && conditions[key]).length;
+  const requiredCount = Object.keys(conditions).filter(key => key.includes('_required') && conditions[key]).length;
+  
+  console.log(`[JD_CONDITIONS] Parsed from description:`, {
+    total_conditions: Object.keys(conditions).length,
+    critical_criteria: criticalCount,
+    required_criteria: requiredCount,
+    conditions: conditions
+  });
+  
+  return conditions;
+}
+
+/**
+ * Check if user age matches JD age requirement
+ * @param {string} birthDate - User birth date
+ * @param {string} ageRange - JD age range (e.g., "18 ~ 35")
+ * @returns {boolean} Whether age matches
+ */
+function checkAgeMatch(birthDate, ageRange) {
+  if (!birthDate || !ageRange) return true;
+  
+  const userAge = calculateAge(birthDate);
+  if (typeof userAge !== 'number') return true;
+  
+  const ageMatch = parseAgeRange(ageRange);
+  if (!ageMatch || !ageMatch.minAge || !ageMatch.maxAge) return true;
+  
+  return userAge >= ageMatch.minAge && userAge <= ageMatch.maxAge;
+}
+
+/**
+ * Test function để kiểm tra parsing với các JD mẫu
+ * @param {string} description - Mô tả JD để test
+ */
+function testJDParsing(description) {
+  console.log(`\n=== TESTING JD PARSING ===`);
+  console.log(`Description: "${description}"`);
+  const result = parseJDConditions(description);
+  console.log(`Result:`, result);
+  console.log(`=== END TEST ===\n`);
+  return result;
+}
+
+/**
+ * Tính ngày kết thúc hợp đồng dựa trên entryDate và duration
+ * @param {string} entryDate - Ngày bắt đầu hợp đồng
+ * @param {string} duration - Thời gian hợp đồng (vd: "3 năm", "6 tháng")
+ * @returns {Date|null} Ngày kết thúc hợp đồng
+ */
 function calculateContractEndDate(entryDate, duration) {
   const start = parseEntryDate(entryDate);
   if (!start) return null;
@@ -98,7 +811,16 @@ function calculateContractEndDate(entryDate, duration) {
 }
 
 
-// ---- tìm group từ visa_type của JD ----
+// ============================================
+// GROUP MAPPING FUNCTIONS
+// ============================================
+
+/**
+ * Tìm group phù hợp từ visa_type của JD
+ * @param {string} jdVisaType - Loại visa của JD
+ * @param {Array} jobGroups - Danh sách các nhóm ngành
+ * @returns {Object} Kết quả mapping với group, score, matched
+ */
 function getJDGroupFromVisaType(jdVisaType, jobGroups) {
   const jdNorm = normalize(jdVisaType || "");
   let best = { group: null, score: 0, matched: null };
@@ -120,39 +842,83 @@ function getJDGroupFromVisaType(jdVisaType, jobGroups) {
   return best;
 }
 
-// ---- check user có thỏa mãn điều kiện tuyển dụng trong JD không ----
-// ---- check user có thỏa mãn điều kiện tuyển dụng trong JD không ----
-function filterByJDConditions(user, jdDetail) {
-  // 1. Check giới tính
-  if (user.gender && normalizeGender(user.gender) !== "nam") return false;
-
-  // 2. Check tuổi
-  if (jdDetail.age_range) {
-    const { minAge, maxAge } = parseAgeRange(jdDetail.age_range);
-    if (!minAge && !maxAge) return true;
-
-    const birth = parseBirthDate(user.birthDate);
-    if (!birth) return false;
-
-    const today = new Date();
-    let age = today.getFullYear() - birth.getFullYear();
-    const monthDiff = today.getMonth() - birth.getMonth();
-    const dayDiff = today.getDate() - birth.getDate();
-    if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) age--;
-
-    if (minAge && age < minAge) return false;
-    if (maxAge && age > maxAge) return false;
-  }
-
-  return true;
-}
-
-// ---- map user jobTitle sang group ----
-function mapUserJobToGroup(jobTitle, jobGroups) {
-  const jobNorm = normalize(jobTitle);
+/**
+ * Tìm group phù hợp từ job description
+ * @param {string} jobDescription - Mô tả công việc
+ * @param {Array} jobGroups - Danh sách các nhóm ngành
+ * @returns {Object} Kết quả mapping với group, score, matched
+ */
+function findGroupByDescription(jobDescription, jobGroups) {
+  const descNorm = normalize(jobDescription || "");
   let best = { group: null, score: 0, matched: null };
 
   for (const group of jobGroups) {
+    // Check group names
+    const groupCandidates = [
+      normalize(group.group_vi || ""),
+      normalize(group.group_en || ""),
+      normalize(group.group_ja || ""),
+    ].filter(Boolean);
+
+    for (const groupCand of groupCandidates) {
+      const sim = stringSimilarity.compareTwoStrings(descNorm, groupCand);
+      if (sim > best.score) {
+        best = { group: group.group_vi, score: sim, matched: groupCand };
+      }
+    }
+
+    // Check individual jobs in the group
+    (group.jobs || []).forEach((job) => {
+      const jobCandidates = [
+        normalize(job.vi || ""),
+        normalize(job.en || ""),
+        normalize(job.ja || ""),
+      ].filter(Boolean);
+
+      for (const jobCand of jobCandidates) {
+        const sim = stringSimilarity.compareTwoStrings(descNorm, jobCand);
+        if (sim > best.score) {
+          best = { group: group.group_vi, score: sim, matched: jobCand };
+        }
+      }
+    });
+  }
+  
+  console.log(`[FIND_GROUP_BY_DESC] Best match: "${best.group}" (score=${best.score.toFixed(2)})`);
+  return best;
+}
+
+
+
+/**
+ * Map job title của user sang group phù hợp
+ * @param {string} jobTitle - Chức danh công việc của user
+ * @param {Array} jobGroups - Danh sách các nhóm ngành
+ * @param {string} jdDescription - Mô tả JD để matching tốt hơn
+ * @returns {Object} Kết quả mapping với group, score, matched
+ */
+function mapUserJobToGroup(jobTitle, jobGroups, jdDescription = '') {
+  const jobNorm = normalize(jobTitle);
+  const jdDescNorm = normalize(jdDescription);
+  let best = { group: null, score: 0, matched: null };
+
+  for (const group of jobGroups) {
+    // Check group name similarity with JD description
+    const groupCandidates = [
+      normalize(group.group_vi || ""),
+      normalize(group.group_en || ""),
+      normalize(group.group_ja || ""),
+    ].filter(Boolean);
+
+    let groupScore = 0;
+    for (const groupCand of groupCandidates) {
+      const sim = stringSimilarity.compareTwoStrings(jdDescNorm, groupCand);
+      if (sim > groupScore) {
+        groupScore = sim;
+      }
+    }
+
+    // Check individual jobs
     (group.jobs || []).forEach((job) => {
       const candidates = [
         normalize(job.vi || ""),
@@ -162,79 +928,175 @@ function mapUserJobToGroup(jobTitle, jobGroups) {
 
       for (const cand of candidates) {
         const sim = stringSimilarity.compareTwoStrings(jobNorm, cand);
-        if (sim > best.score) {
-          best = { group: group.group_vi, score: sim, matched: cand };
+        
+        // Boost score if group matches JD description
+        const boostedScore = sim + (groupScore * 0.3);
+        
+        if (boostedScore > best.score) {
+          best = { 
+            group: group.group_vi, 
+            score: boostedScore, 
+            matched: cand,
+            groupMatch: groupScore > 0.3
+          };
         }
       }
     });
   }
+  
+  console.log(`[JOB_MAPPING] "${jobTitle}" -> group="${best.group}" (score=${best.score.toFixed(2)}, groupMatch=${best.groupMatch})`);
   return best;
 }
 
-// ---- main ----
+// ============================================
+// MAIN MATCHING FUNCTION
+// ============================================
+
+/**
+ * Tìm kiếm và đánh giá độ phù hợp giữa users và JD
+ * @param {string} jdId - ID của Job Description
+ * @param {string|null} filePath - Đường dẫn file chứa danh sách users (optional)
+ * @param {number} batchSize - Kích thước batch xử lý
+ * @param {number} concurrency - Số lượng concurrent requests
+ * @returns {Promise<Array>} Danh sách users phù hợp đã sắp xếp theo điểm
+ */
 async function matchUsersWithJD(
   jdId,
   filePath = null,
-  batchSize = 1000,
-  concurrency = 10
+  batchSize = 20, // Giảm batch size để tăng tốc độ xử lý
+  concurrency = 2  // Giảm concurrency để tăng tốc độ và tránh rate limit
 ) {
-  console.log(`[matchUsersWithJD] Start for JD id=${jdId}`);
+  console.log(`[matchUsersWithJD] Starting matching process for JD id=${jdId}`);
   console.time(`[matchUsersWithJD:${jdId}]`);
 
-  // 1) Lấy JD
+  // 1. Load Job Description
   const jd = await JD.findById(jdId);
   if (!jd) throw new Error("Không tìm thấy JD");
-  const jdDetail = await getJDById(jdId);
+  
+  let jdDetail;
+  try {
+    jdDetail = await getJDById(jdId);
+    if (!jdDetail) {
+      console.warn(`[matchUsersWithJD] JD detail not found, using basic JD data`);
+      jdDetail = jd;
+    }
+  } catch (error) {
+    console.warn(`[matchUsersWithJD] Error loading JD detail: ${error.message}, using basic JD data`);
+    jdDetail = jd;
+  }
+  
   console.log(
-    `[matchUsersWithJD] JD loaded: ${jd._id} - visa_type="${jdDetail.visa_type}"`
+    `[matchUsersWithJD] JD loaded: ${jd._id} - visa_type="${jdDetail.visa_type || 'N/A'}"`
   );
 
-  // 2) Load jobGroups từ DB
-  const jobGroups = await JobGroup.find().lean();
-  console.log(`[matchUsersWithJD] Loaded ${jobGroups.length} jobGroups`);
+  // 2. Load job groups from database
+  let jobGroups;
+  try {
+    jobGroups = await JobGroup.find().lean();
+    console.log(`[matchUsersWithJD] Loaded ${jobGroups.length} job groups`);
+  } catch (error) {
+    console.error(`[matchUsersWithJD] Error loading job groups: ${error.message}`);
+    throw new Error("Không thể tải danh sách nhóm ngành: " + error.message);
+  }
 
-  // 3) Map JD visa_type -> group
-  const jdGroupResult = getJDGroupFromVisaType(jdDetail.visa_type, jobGroups);
+  // 3. Map JD visa_type to job group
+  const jdGroupResult = getJDGroupFromVisaType(jdDetail.visa_type || '', jobGroups);
   if (!jdGroupResult.group) {
-    console.warn(`[matchUsersWithJD] Không tìm thấy nhóm ngành cho JD visa_type`);
-    return [];
+    console.warn(`[matchUsersWithJD] Không tìm thấy nhóm ngành phù hợp cho visa_type: ${jdDetail.visa_type || 'N/A'}`);
+    // Fallback: tìm group phù hợp với job description
+    const fallbackGroupResult = findGroupByDescription(jdDetail.job_description || '', jobGroups);
+    if (fallbackGroupResult.group) {
+      console.log(`[matchUsersWithJD] Using fallback group based on description: "${fallbackGroupResult.group}"`);
+      jdGroupResult.group = fallbackGroupResult.group;
+      jdGroupResult.score = fallbackGroupResult.score;
+    } else {
+      console.warn(`[matchUsersWithJD] No suitable group found, will search all users`);
+    }
   }
   console.log(
     `[matchUsersWithJD] JD visa_type="${jdDetail.visa_type}" -> group="${jdGroupResult.group}" (score=${jdGroupResult.score.toFixed(2)})`
   );
 
+  // Initialize tracking variables
   const matchedUsers = [];
   const matchedUserIds = new Set();
   const limit = pLimit(concurrency);
-  let totalProcessed = 0,
-      totalMatched = 0,
-      batchIndex = 0;
+  let totalProcessed = 0;
+  let totalMatched = 0;
+  let batchIndex = 0;
+  let aiRequestCount = 0;
+  const maxAIRequestsPerMinute = 10; // Giảm số request AI để tránh rate limit
+  const minCandidatesRequired = 10; // Số ứng viên tối thiểu cần tìm
+  
+  // Progress tracking
+  let totalUsers = 0;
+  let currentPhase = 'phase1';
+  let phase1Completed = false;
 
-  async function processBatch(usersArray) {
+  /**
+   * Tạo progress information
+   */
+  function getProgressInfo() {
+    const progress = totalUsers > 0 ? Math.round((totalProcessed / totalUsers) * 100) : 0;
+    return {
+      phase: currentPhase,
+      phaseName: currentPhase === 'phase1' ? 'Tìm kiếm trong nhóm ngành' : 'Mở rộng tìm kiếm',
+      totalUsers,
+      processed: totalProcessed,
+      matched: totalMatched,
+      progress,
+      aiRequests: aiRequestCount,
+      batchIndex,
+      phase1Completed
+    };
+  }
+
+  /**
+   * Process a batch of users for matching
+   * @param {Array} usersArray - Array of users to process
+   * @param {boolean} strictGroupMatching - If true, only match within same group
+   */
+  async function processBatch(usersArray, strictGroupMatching = true) {
     batchIndex++;
-    console.log(`[Batch #${batchIndex}] size=${usersArray.length}`);
+    console.log(`[Batch #${batchIndex}] Processing ${usersArray.length} users (strictGroup=${strictGroupMatching})`);
     let matchedThisBatch = 0;
+    
+    // Update current phase
+    currentPhase = strictGroupMatching ? 'phase1' : 'phase2';
 
     for (const user of usersArray) {
       totalProcessed++;
       const jobTitle = user.jobTitle || "";
       if (!jobTitle) continue;
 
-      const userGroupResult = mapUserJobToGroup(jobTitle, jobGroups);
+      const userGroupResult = mapUserJobToGroup(jobTitle, jobGroups, jdDetail.job_description || '');
 
-      // chỉ giữ nếu cùng group với JD group
-      const isSameGroup =
-        userGroupResult.group &&
+      // Process all users but mark group match status
+      // Phase 1: Process all users, mark groupMatch status
+      // Phase 2: Process all users with flexible matching
+      let isEligible = true;
+      let groupMatch = false;
+      
+      if (strictGroupMatching) {
+        // Phase 1: Check if user belongs to same group as JD
+        groupMatch = userGroupResult.group &&
         normalize(userGroupResult.group) === normalize(jdGroupResult.group);
+        console.log(`[GROUP_CHECK] User ${user._id}: groupMatch=${groupMatch}, userGroup="${userGroupResult.group}", jdGroup="${jdGroupResult.group}"`);
+      } else {
+        // Phase 2: More flexible matching
+        groupMatch = userGroupResult.group && userGroupResult.score > 0.3;
+        isEligible = userGroupResult.group && userGroupResult.score > 0.3;
+      }
 
-      if (!isSameGroup) continue;
+      if (!isEligible) continue;
 
-      // check điều kiện trong JD
-      if (!filterByJDConditions(user, jdDetail)) continue;
+      // AI will evaluate all JD conditions automatically
+      // No need for manual filtering as AI handles all requirements
 
-      // ✅ check hợp đồng còn >= 1 năm dựa trên entryDate và contractDuration
+      // Check if contract expires within 1 year
       let isValidContract = true;
-      let endDate = null, diffYears = null;
+      let endDate = null;
+      let diffYears = null;
 
       if (user.entryDate && user.contractDuration) {
         endDate = calculateContractEndDate(
@@ -243,7 +1105,8 @@ async function matchUsersWithJD(
         );
         if (endDate) {
           diffYears = (endDate - new Date()) / (1000 * 60 * 60 * 24 * 365);
-          isValidContract = diffYears < 1 ;
+          // Only include users with contracts expiring within 1 year
+          isValidContract = diffYears <= 1;
         }
       }
 
@@ -251,26 +1114,107 @@ async function matchUsersWithJD(
         matchedThisBatch++;
         totalMatched++;
         if (!matchedUserIds.has(user._id)) {
-          matchedUsers.push({
-            ...user,
-            matchedGroup: userGroupResult.group,
-            matchScore: userGroupResult.score,
-            matchedCandidate: userGroupResult.matched,
-            contractEndDate: endDate,
-            remainingYears: diffYears?.toFixed(2),
-          });
-          matchedUserIds.add(user._id);
+          try {
+            // Check rate limit before making AI request
+            if (aiRequestCount >= maxAIRequestsPerMinute) {
+              console.log(`[RATE_LIMIT] Reached ${maxAIRequestsPerMinute} AI requests, using fallback scoring`);
+              throw new Error('Rate limit reached, using fallback');
+            }
+
+            // Add delay between AI requests to avoid rate limiting
+            if (aiRequestCount > 0) {
+              const delay = Math.random() * 2000 + 1000; // 1-3 seconds random delay
+              console.log(`[AI_DELAY] Waiting ${delay.toFixed(0)}ms before next AI request...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+
+            aiRequestCount++;
+            
+            // Calculate AI match score
+            const aiMatchScore = await calculateAIMatchScore(
+              jd.original_text || jd.text || '', 
+              user, 
+              jdDetail
+            );
+            
+            // STRICT FILTERING: Include candidates with good AI score regardless of group match
+            if (aiMatchScore > 0.5) {
+            matchedUsers.push({
+              ...user,
+              matchedGroup: userGroupResult.group,
+                matchScore: aiMatchScore,
+              matchedCandidate: userGroupResult.matched,
+              contractEndDate: endDate,
+              remainingYears: diffYears?.toFixed(2),
+                matchingPhase: strictGroupMatching ? 'phase1' : 'phase2',
+                groupMatch: groupMatch
+            });
+            matchedUserIds.add(user._id);
+              console.log(`[STRICT_FILTER] User ${user._id} accepted by AI: score=${aiMatchScore.toFixed(2)} (≥50%), groupMatch=${groupMatch}`);
+            } else {
+              console.log(`[STRICT_FILTER] User ${user._id} rejected by AI: score=${aiMatchScore.toFixed(2)} (<50%)`);
+            }
+            
+            console.log(
+              `[MATCH] user=${user._id} jobTitle="${jobTitle}" -> group="${userGroupResult.group}" AI_score=${aiMatchScore?.toFixed(2)} (AI_requests=${aiRequestCount})`
+            );
+          } catch (aiError) {
+            console.error(`[AI_ERROR] user=${user._id}:`, aiError.message);
+            
+            // Enhanced fallback scoring with strict filtering
+            const fallbackResult = calculateFallbackScore(user, jdDetail, userGroupResult.score);
+            
+            // Debug logging for high-score users
+            if (fallbackResult.score > 0.8) {
+              console.log(`[DEBUG_HIGH_SCORE] User ${user._id}: score=${fallbackResult.score.toFixed(2)}, critical=${fallbackResult.allCriticalMatched}, criteria=${fallbackResult.criticalMatched}/${fallbackResult.criticalCriteria}`);
+            }
+            
+            // STRICT MAIN CRITERIA: Only accept if main criteria (gender + age) are met + score > 50%
+            if (fallbackResult.allCriticalMatched && fallbackResult.score > 0.5) {
+            matchedUsers.push({
+              ...user,
+              matchedGroup: userGroupResult.group,
+                matchScore: fallbackResult.score,
+              matchedCandidate: userGroupResult.matched,
+              contractEndDate: endDate,
+              remainingYears: diffYears?.toFixed(2),
+                aiFallback: true, // Flag to indicate this used fallback scoring
+                matchingPhase: strictGroupMatching ? 'phase1' : 'phase2',
+                groupMatch: groupMatch,
+                criteriaResults: fallbackResult.criteriaResults,
+                criticalCriteria: fallbackResult.criticalCriteria,
+                criticalMatched: fallbackResult.criticalMatched
+            });
+            matchedUserIds.add(user._id);
+              console.log(`[MAIN_CRITERIA_FILTER] User ${user._id} accepted: main_criteria=${fallbackResult.allCriticalMatched}, score=${fallbackResult.score.toFixed(2)} (>50%), groupMatch=${groupMatch}`);
+            } else {
+              const reason = !fallbackResult.allCriticalMatched ? 'main_criteria_failed' : 'score_too_low';
+              console.log(`[MAIN_CRITERIA_FILTER] User ${user._id} rejected: reason=${reason}, main_criteria=${fallbackResult.allCriticalMatched}, score=${fallbackResult.score.toFixed(2)}`);
+            }
+            
+            console.log(
+              `[FALLBACK] user=${user._id} jobTitle="${jobTitle}" -> group="${userGroupResult.group}" fallback_score=${fallbackResult?.score?.toFixed(2)}`
+            );
+            
+            // Special debug for specific user
+            if (user._id === '68c0d79debc4c99dfa670667') {
+              console.log(`[DEBUG_SPECIFIC_USER] User 68c0d79debc4c99dfa670667:`, {
+                score: fallbackResult.score,
+                allCriticalMatched: fallbackResult.allCriticalMatched,
+                criticalMatched: fallbackResult.criticalMatched,
+                criticalCriteria: fallbackResult.criticalCriteria,
+                willBeAccepted: (fallbackResult.score > 0.8) || (fallbackResult.allCriticalMatched && fallbackResult.score > 0.5)
+              });
+            }
+          }
         }
-        console.log(
-          `[MATCH] user=${user._id} jobTitle="${jobTitle}" -> group="${userGroupResult.group}" score=${userGroupResult.score.toFixed(2)}`
-        );
       }
     }
 
-    console.log(`[Batch #${batchIndex}] done - matched=${matchedThisBatch}`);
+    console.log(`[Batch #${batchIndex}] completed - matched=${matchedThisBatch} users`);
   }
 
-  // 4) Source: file hoặc DB
+  // 4. Process users from file or database
   if (filePath) {
     const rl = readline.createInterface({
       input: fs.createReadStream(filePath),
@@ -289,30 +1233,107 @@ async function matchUsersWithJD(
     if (buffer.length > 0)
       await processBatch(buffer.map((t) => ({ jobTitle: t, _id: t })));
   } else {
+    // Process users from database with 2-phase approach
+    try {
     const total = await User.countDocuments();
-    console.log(`[matchUsersWithJD] Will process ${total} users`);
+      totalUsers = total;
+      console.log(`[matchUsersWithJD] Will process ${total} users from database`);
 
-    const promises = [];
+      // Phase 1: Process with strict group matching
+      console.log(`[matchUsersWithJD] Phase 1: Strict group matching`);
+      const promises1 = [];
+      for (let skip = 0; skip < total; skip += batchSize) {
+        const promise = limit(async () => {
+          try {
+            const users = await User.find().skip(skip).limit(batchSize).lean();
+            if (!users || users.length === 0) return;
+            await processBatch(users, true); // Strict group matching
+          } catch (batchError) {
+            console.error(`[matchUsersWithJD] Error processing batch at skip=${skip}:`, batchError.message);
+          }
+        });
+        promises1.push(promise);
+      }
+      await Promise.all(promises1);
+
+      // Check if we have enough candidates
+      phase1Completed = true;
+      console.log(`[matchUsersWithJD] Phase 1 completed. Found ${matchedUsers.length} candidates`);
+      
+      // Early exit if we have enough high-quality candidates
+      if (matchedUsers.length >= minCandidatesRequired * 2) {
+        console.log(`[matchUsersWithJD] Early exit: Found ${matchedUsers.length} candidates (≥${minCandidatesRequired * 2})`);
+        matchedUsers.sort((a, b) => b.matchScore - a.matchScore);
+        return {
+          candidates: matchedUsers,
+          progress: getProgressInfo(),
+          summary: {
+            totalProcessed,
+            totalMatched: matchedUsers.length,
+            phase1Completed,
+            finalPhase: currentPhase
+          }
+        };
+      }
+      
+      if (matchedUsers.length < minCandidatesRequired && jdGroupResult.group) {
+        console.log(`[matchUsersWithJD] Phase 2: Expanding search to all users (found ${matchedUsers.length} < ${minCandidatesRequired})`);
+        
+        // Phase 2: Process with flexible matching
+        const promises2 = [];
     for (let skip = 0; skip < total; skip += batchSize) {
       const promise = limit(async () => {
+            try {
         const users = await User.find().skip(skip).limit(batchSize).lean();
         if (!users || users.length === 0) return;
-        await processBatch(users);
-      });
-      promises.push(promise);
+              await processBatch(users, false); // Flexible matching
+            } catch (batchError) {
+              console.error(`[matchUsersWithJD] Error processing batch at skip=${skip}:`, batchError.message);
+            }
+          });
+          promises2.push(promise);
+        }
+        await Promise.all(promises2);
+        
+        console.log(`[matchUsersWithJD] Phase 2 completed. Total found: ${matchedUsers.length} candidates`);
+      }
+    } catch (error) {
+      console.error(`[matchUsersWithJD] Error processing users from database:`, error.message);
+      throw new Error("Không thể xử lý danh sách ứng viên: " + error.message);
     }
-    await Promise.all(promises);
   }
 
-  // 5) Sort kết quả theo similarity giảm dần
+  // 5. Sort results by match score (descending)
   matchedUsers.sort((a, b) => b.matchScore - a.matchScore);
 
-  // 6) Done
+  // 6. Final validation: Ensure all candidates have score > 50%
+  const validCandidates = matchedUsers.filter(user => user.matchScore && user.matchScore > 0.5);
+  console.log(`[matchUsersWithJD] Final validation: ${validCandidates.length}/${matchedUsers.length} candidates with score >50%`);
+  
+  // Debug: Log any high-score users that were filtered out
+  const highScoreFiltered = matchedUsers.filter(user => user.matchScore && user.matchScore > 0.8 && !validCandidates.includes(user));
+  if (highScoreFiltered.length > 0) {
+    console.log(`[DEBUG_FILTERED] High-score users filtered out:`, highScoreFiltered.map(u => `${u._id}:${u.matchScore.toFixed(2)}`));
+  }
+
+  // 6. Return results
   console.log(
-    `[matchUsersWithJD] Finished. totalProcessed=${totalProcessed}, totalMatched=${totalMatched}`
+    `[matchUsersWithJD] Completed. Processed=${totalProcessed}, Matched=${totalMatched}`
   );
   console.timeEnd(`[matchUsersWithJD:${jdId}]`);
-  return matchedUsers;
+  
+  // Return results with progress info
+  return {
+    candidates: validCandidates,
+    progress: getProgressInfo(),
+    summary: {
+      totalProcessed,
+      totalMatched: validCandidates.length,
+      originalMatched: matchedUsers.length,
+      phase1Completed,
+      finalPhase: currentPhase
+    }
+  };
 }
 
 module.exports = { matchUsersWithJD };
