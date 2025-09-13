@@ -93,7 +93,7 @@ const JobList = () => {
       setJdLoading(true);
       console.log(`[loadAnalyzedJDs] Loading page ${page}, search: ${search}`);
       
-      const response = await api.get('/jd', {
+      const response = await api.get('/api/jd', {
         params: {
           page,
           limit: jdPagination.pageSize,
@@ -225,7 +225,7 @@ const JobList = () => {
         const formData = new FormData();
         formData.append('jdFile', file);
 
-        const response = await api.post('/jd/upload', formData, {
+        const response = await api.post('/api/jd/upload', formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
@@ -267,7 +267,7 @@ const JobList = () => {
       setJdLoading(true);
       setAnalysisResult(null);
 
-      const response = await api.post('/jd/analyze-text', {
+      const response = await api.post('/api/jd/analyze-text', {
         jdText: values.jdText
       });
 
@@ -296,7 +296,7 @@ const JobList = () => {
   // Xem chi tiết JD
   const handleViewJDDetail = async (id) => {
     try {
-      const response = await api.get(`/jd/${id}`);
+      const response = await api.get(`/api/jd/${id}`);
       if (response.data.success) {
         setSelectedJD(response.data.data);
         setDetailModalVisible(true);
@@ -309,7 +309,7 @@ const JobList = () => {
   // Xóa JD
   const handleDeleteJD = async (id) => {
     try {
-      const response = await api.delete(`/jd/${id}`);
+      const response = await api.delete(`/api/jd/${id}`);
       if (response.data.success) {
         message.success('Xóa JD thành công');
         loadAnalyzedJDs(jdPagination.current, searchText);

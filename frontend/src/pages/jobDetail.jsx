@@ -21,7 +21,7 @@ const JobDetail = () => {
     const fetchJob = async () => {
       try {
         console.log(`[JobDetail] Fetching job details for ID: ${id}`);
-        const res = await api.get(`/jd/${id}`);
+        const res = await api.get(`/api/jd/${id}`);
         
         console.log('[JobDetail] Job response:', res.data);
         
@@ -40,7 +40,7 @@ const JobDetail = () => {
     const fetchCandidates = async () => {
       try {
         console.log(`[JobDetail] Fetching candidates for JD ID: ${id}`);
-        const res = await api.get(`/jd/${id}/candidates`);
+        const res = await api.get(`/api/jd/${id}/candidates`);
         
         console.log('[JobDetail] Candidates response:', res.data);
         

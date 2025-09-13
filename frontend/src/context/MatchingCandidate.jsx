@@ -17,7 +17,7 @@ export const MatchingCandidateProvider = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await api.get(`/jd/${jdId}/candidates`);
+      const res = await api.get(`/api/jd/${jdId}/candidates`);
       setCandidates(res.data.data.candidates || []);
     } catch (err) {
       setError(err.message);

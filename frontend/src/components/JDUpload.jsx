@@ -41,7 +41,7 @@ const JDUpload = () => {
         const formData = new FormData();
         formData.append('jdFile', file);
 
-        const response = await api.post('/jd/upload', formData, {
+        const response = await api.post('/api/jd/upload', formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
@@ -74,7 +74,7 @@ const JDUpload = () => {
       setLoading(true);
       setAnalysisResult(null);
 
-      const response = await api.post('/jd/analyze-text', {
+      const response = await api.post('/api/jd/analyze-text', {
         jdText: values.jdText
       });
 

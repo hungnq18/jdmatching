@@ -11,7 +11,7 @@ export const JobProvider = ({ children }) => {
   const fetchJobs = async () => {
     try {
       setLoading(true);
-      const res = await api.get('/jd');
+      const res = await api.get('/api/jd');
       // Xử lý nhiều cấu trúc response khác nhau
       const jds = res.data.data?.jds || res.data.data || res.data.jds || [];
       setJobs(Array.isArray(jds) ? jds : []);
@@ -24,7 +24,7 @@ export const JobProvider = ({ children }) => {
 
   const addJob = async (job) => {
     try {
-      const res = await api.post('/jd', job);
+      const res = await api.post('/api/jd', job);
       setJobs((prev) => [...prev, res.data]);
     } catch (err) {
       setError(err.message);
@@ -33,7 +33,7 @@ export const JobProvider = ({ children }) => {
 
   const deleteJob = async (id) => {
     try {
-      await api.delete(`/jd/${id}`);
+      await api.delete(`/api/jd/${id}`);
       setJobs((prev) => prev.filter(job => job._id !== id));
     } catch (err) {
       setError(err.message);

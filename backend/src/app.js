@@ -9,8 +9,13 @@ const app = express();
 // CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
+    console.log('🌐 CORS Request from origin:', origin);
+    
     // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
+    if (!origin) {
+      console.log('✅ CORS: Allowing request with no origin');
+      return callback(null, true);
+    }
     
     const allowedOrigins = [
       'http://localhost:5173',
@@ -21,12 +26,16 @@ const corsOptions = {
       process.env.CORS_ORIGIN
     ].filter(Boolean);
     
+    console.log('📋 Allowed origins:', allowedOrigins);
+    
     // Allow Vercel preview deployments
     if (origin && origin.includes('vercel.app')) {
+      console.log('✅ CORS: Allowing Vercel deployment:', origin);
       return callback(null, true);
     }
     
     if (allowedOrigins.includes(origin)) {
+      console.log('✅ CORS: Allowing origin:', origin);
       callback(null, true);
     } else {
       console.log('🚫 CORS blocked origin:', origin);
@@ -71,7 +80,21 @@ app.get('/api/test', (req, res) => {
   res.status(200).json({
     message: 'API connection successful!',
     timestamp: new Date().toISOString(),
-    origin: req.get('Origin') || 'No origin header'
+    origin: req.get('Origin') || 'No origin header',
+    headers: req.headers
+  });
+});
+
+// CORS test endpoint
+app.options('/api/cors-test', (req, res) => {
+  res.status(200).end();
+});
+
+app.get('/api/cors-test', (req, res) => {
+  res.status(200).json({
+    message: 'CORS test successful!',
+    origin: req.get('Origin'),
+    timestamp: new Date().toISOString()
   });
 });
 
