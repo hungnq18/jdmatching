@@ -7,6 +7,7 @@ const connectDB = async () => {
     if (!mongoURI) {
       throw new Error('MongoDB URI is not defined. Please set MONGODB_ATLAS_URI or MONGO_URI environment variable.');
     }
+ush
 
     console.log('🔗 Connecting to MongoDB Atlas...');
     console.log('🌍 Environment:', process.env.NODE_ENV || 'development');
@@ -17,7 +18,6 @@ const connectDB = async () => {
       maxPoolSize: 10, // Maintain up to 10 socket connections
       serverSelectionTimeoutMS: 5000, // Keep trying to send operations for 5 seconds
       socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
-      bufferMaxEntries: 0, // Disable mongoose buffering
       bufferCommands: false, // Disable mongoose buffering
     };
 
