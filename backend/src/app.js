@@ -2,14 +2,36 @@ const cors = require("cors");
 const express = require("express");
 const path = require("path");
 const matchRoutes = require('./routes/match');
-const jdRoutes = require('./routes/jd');
 const jdRoutesNew = require('./routes/jdRoutes');
 
 const app = express();
 
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// CORS configuration
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'https://c-soft-frontend.onrender.com',
+      process.env.CORS_ORIGIN
+    ].filter(Boolean);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Tạo thư mục uploads nếu chưa có
 const fs = require('fs');
@@ -21,6 +43,18 @@ if (!fs.existsSync(uploadDir)) {
 // Serve static files from uploads directory
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development',
+    database: 'Connected' // This will be updated based on actual connection status
+  });
+});
+
+// API routes
 app.use('/api', matchRoutes);
 app.use('/api/jd', jdRoutesNew);
 

@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: c-soft-backend
+    env: node
+    plan: free
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_ATLAS_URI
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        value: https://c-soft-frontend.onrender.com
+    healthCheckPath: /health
+    autoDeploy: true
+
+  - type: web
+    name: c-soft-frontend
+    env: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: REACT_APP_API_URL
+        value: https://c-soft-backend.onrender.com/api
+    autoDeploy: true

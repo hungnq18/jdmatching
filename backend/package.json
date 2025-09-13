@@ -8,8 +8,10 @@
     "dev": "nodemon src/server.js",
     "build": "echo \"No build step required for Node.js\"",
     "test": "echo \"Error: no test specified\" && exit 1",
+    "test:connection": "node test-connection.js",
     "lint": "echo \"No linter configured\"",
-    "clean": "rm -rf node_modules package-lock.json"
+    "clean": "rm -rf node_modules package-lock.json",
+    "render-postbuild": "echo \"Render postbuild completed\""
   },
   "keywords": [],
   "author": "",

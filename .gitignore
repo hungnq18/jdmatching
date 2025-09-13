@@ -25,6 +25,17 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# Environment variables
+backend/.env
+backend/.env.local
+backend/.env.production
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+
+# Uploads
+backend/uploads/
+
 # =========================
 # Vite + React / Frontend
 # =========================
