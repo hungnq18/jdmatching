@@ -7,7 +7,7 @@ const connectDB = async () => {
     if (!mongoURI) {
       throw new Error('MongoDB URI is not defined. Please set MONGODB_ATLAS_URI or MONGO_URI environment variable.');
     }
-ush
+
 
     console.log('🔗 Connecting to MongoDB Atlas...');
     console.log('🌍 Environment:', process.env.NODE_ENV || 'development');
