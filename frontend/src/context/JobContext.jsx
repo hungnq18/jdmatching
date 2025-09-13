@@ -12,7 +12,9 @@ export const JobProvider = ({ children }) => {
     try {
       setLoading(true);
       const res = await api.get('/jd');
-      setJobs(res.data.data.jds || []);
+      // Xử lý nhiều cấu trúc response khác nhau
+      const jds = res.data.data?.jds || res.data.data || res.data.jds || [];
+      setJobs(Array.isArray(jds) ? jds : []);
     } catch (err) {
       setError(err.message);
     } finally {

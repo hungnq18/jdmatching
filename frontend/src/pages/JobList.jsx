@@ -103,15 +103,18 @@ const JobList = () => {
 
       console.log('📋 JD Response:', response.data);
 
-      if (response.data.success) {
-        setAnalyzedJDs(response.data.data.jds || []);
+      if (response.data && response.data.success) {
+        // Xử lý nhiều cấu trúc response khác nhau
+        const jds = response.data.data?.jds || response.data.data || response.data.jds || [];
+        setAnalyzedJDs(Array.isArray(jds) ? jds : []);
         setJdPagination(prev => ({
           ...prev,
-          current: response.data.data.pagination?.current_page || page,
-          total: response.data.data.pagination?.total_items || 0
+          current: response.data.data?.pagination?.current_page || response.data.pagination?.current_page || page,
+          total: response.data.data?.pagination?.total_items || response.data.pagination?.total_items || 0
         }));
       } else {
-        message.error(response.data.message || 'Lỗi khi tải danh sách JD');
+        console.error('❌ API Response Error:', response.data);
+        message.error(response.data?.message || 'Lỗi khi tải danh sách JD');
       }
     } catch (error) {
       console.error('Error loading JDs:', error);
