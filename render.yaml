@@ -22,7 +22,11 @@ services:
     env: static
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: frontend/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
       - key: VITE_API_URL
-        value: https://jdmatching.onrender.com/api
+        value: https://jdmatching.onrender.com
     autoDeploy: true

@@ -15,6 +15,7 @@ const corsOptions = {
     const allowedOrigins = [
       'http://localhost:5173',
       'http://localhost:3000',
+      'https://jdmatching-1.onrender.com',
       'https://c-soft-frontend.onrender.com',
       process.env.CORS_ORIGIN
     ].filter(Boolean);
@@ -55,6 +56,15 @@ app.get('/', (req, res) => {
       api: '/api',
       jd: '/api/jd'
     }
+  });
+});
+
+// Test endpoint for frontend
+app.get('/api/test', (req, res) => {
+  res.status(200).json({
+    message: 'API connection successful!',
+    timestamp: new Date().toISOString(),
+    origin: req.get('Origin') || 'No origin header'
   });
 });
 

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Sử dụng import.meta.env thay vì process.env cho Vite
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://jdmatching.onrender.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://jdmatching.onrender.com';
 
 console.log('🌐 API Base URL:', API_BASE_URL);
 
@@ -37,7 +37,12 @@ api.interceptors.response.use(
     }
     
     if (!response) {
-      console.error('Network Error - Server might be down');
+      console.error('🌐 Network Error - Server might be down or CORS issue');
+      console.error('Error details:', error.message);
+      console.error('Request URL:', error.config?.url);
+    } else {
+      console.error('🌐 API Error:', response.status, response.statusText);
+      console.error('Error details:', response.data);
     }
     
     return Promise.reject(error);
