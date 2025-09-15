@@ -843,6 +843,173 @@ function getJDGroupFromVisaType(jdVisaType, jobGroups) {
 }
 
 /**
+ * AI tự động phân tích và xác định nhóm ngành phù hợp
+ * @param {Object} jdDetail - Chi tiết JD
+ * @param {Array} jobGroups - Danh sách các nhóm ngành
+ * @returns {Promise<Object>} Kết quả mapping với group, score, matched
+ */
+async function analyzeJobGroupWithAI(jdDetail, jobGroups) {
+  try {
+    // Tạo danh sách các nhóm ngành có sẵn
+    const availableGroups = jobGroups.map(group => ({
+      name: group.group_vi,
+      description: group.group_en || group.group_ja || group.group_vi,
+      jobs: (group.jobs || []).map(job => job.vi).join(', ')
+    }));
+
+    // Tạo prompt cho AI
+    const prompt = `Bạn là chuyên gia phân loại công việc. Hãy phân tích thông tin công việc sau và chọn nhóm ngành phù hợp nhất.
+
+THÔNG TIN CÔNG VIỆC:
+- Tên công việc: ${jdDetail.job_name || 'N/A'}
+- Loại visa: ${jdDetail.visa_type || 'N/A'}
+- Mô tả công việc: ${(jdDetail.job_description || '').substring(0, 500)}...
+- Công ty: ${jdDetail.company_name || 'N/A'}
+- Ngành nghề: ${jdDetail.industry || 'N/A'}
+
+CÁC NHÓM NGÀNH CÓ SẴN:
+${availableGroups.map((group, index) => 
+  `${index + 1}. ${group.name} (${group.description})
+     Các công việc: ${group.jobs}`
+).join('\n\n')}
+
+Hãy phân tích và trả về kết quả theo format JSON:
+{
+  "group_name": "Tên nhóm ngành phù hợp nhất",
+  "confidence": 0.95,
+  "reasoning": "Lý do tại sao chọn nhóm này",
+  "matched_keywords": ["từ khóa", "liên quan"]
+}
+
+Chỉ trả về JSON, không có text khác.`;
+
+    const response = await aiAnalysisService.callAI(prompt);
+    const result = JSON.parse(response.trim());
+    
+    // Tìm group tương ứng trong database
+    const matchedGroup = jobGroups.find(g => 
+      normalize(g.group_vi) === normalize(result.group_name)
+    );
+    
+    if (matchedGroup) {
+      return {
+        group: matchedGroup.group_vi,
+        score: result.confidence || 0.8,
+        matched: result.group_name,
+        reasoning: result.reasoning,
+        keywords: result.matched_keywords || []
+      };
+    } else {
+      // Nếu không tìm thấy group chính xác, tìm group tương tự
+      let bestMatch = { group: null, score: 0, matched: null };
+      for (const group of jobGroups) {
+        const similarity = stringSimilarity.compareTwoStrings(
+          normalize(result.group_name), 
+          normalize(group.group_vi)
+        );
+        if (similarity > bestMatch.score) {
+          bestMatch = {
+            group: group.group_vi,
+            score: similarity * (result.confidence || 0.8),
+            matched: result.group_name,
+            reasoning: result.reasoning,
+            keywords: result.matched_keywords || []
+          };
+        }
+      }
+      return bestMatch;
+    }
+  } catch (error) {
+    console.error('Error in AI job group analysis:', error);
+    throw error;
+  }
+}
+
+/**
+ * AI phân tích job title của user để xác định nhóm ngành
+ * @param {string} jobTitle - Chức danh công việc của user
+ * @param {Array} jobGroups - Danh sách các nhóm ngành
+ * @param {Object} jdDetail - Chi tiết JD để context
+ * @returns {Promise<Object>} Kết quả mapping với group, score, matched
+ */
+async function analyzeUserJobGroupWithAI(jobTitle, jobGroups, jdDetail) {
+  try {
+    // Tạo danh sách các nhóm ngành có sẵn
+    const availableGroups = jobGroups.map(group => ({
+      name: group.group_vi,
+      description: group.group_en || group.group_ja || group.group_vi,
+      jobs: (group.jobs || []).map(job => job.vi).join(', ')
+    }));
+
+    // Tạo prompt cho AI
+    const prompt = `Bạn là chuyên gia phân loại công việc. Hãy phân tích chức danh công việc của ứng viên và xác định nhóm ngành phù hợp.
+
+THÔNG TIN ỨNG VIÊN:
+- Chức danh công việc: ${jobTitle}
+
+CONTEXT CÔNG VIỆC ĐANG TUYỂN:
+- Tên công việc: ${jdDetail.job_name || 'N/A'}
+- Mô tả công việc: ${(jdDetail.job_description || '').substring(0, 300)}...
+
+CÁC NHÓM NGÀNH CÓ SẴN:
+${availableGroups.map((group, index) => 
+  `${index + 1}. ${group.name} (${group.description})
+     Các công việc: ${group.jobs}`
+).join('\n\n')}
+
+Hãy phân tích và trả về kết quả theo format JSON:
+{
+  "group_name": "Tên nhóm ngành phù hợp nhất",
+  "confidence": 0.85,
+  "reasoning": "Lý do tại sao chọn nhóm này",
+  "is_same_group": true
+}
+
+Chỉ trả về JSON, không có text khác.`;
+
+    const response = await aiAnalysisService.callAI(prompt);
+    const result = JSON.parse(response.trim());
+    
+    // Tìm group tương ứng trong database
+    const matchedGroup = jobGroups.find(g => 
+      normalize(g.group_vi) === normalize(result.group_name)
+    );
+    
+    if (matchedGroup) {
+      return {
+        group: matchedGroup.group_vi,
+        score: result.confidence || 0.8,
+        matched: result.group_name,
+        reasoning: result.reasoning,
+        isSameGroup: result.is_same_group || false
+      };
+    } else {
+      // Nếu không tìm thấy group chính xác, tìm group tương tự
+      let bestMatch = { group: null, score: 0, matched: null };
+      for (const group of jobGroups) {
+        const similarity = stringSimilarity.compareTwoStrings(
+          normalize(result.group_name), 
+          normalize(group.group_vi)
+        );
+        if (similarity > bestMatch.score) {
+          bestMatch = {
+            group: group.group_vi,
+            score: similarity * (result.confidence || 0.8),
+            matched: result.group_name,
+            reasoning: result.reasoning,
+            isSameGroup: result.is_same_group || false
+          };
+        }
+      }
+      return bestMatch;
+    }
+  } catch (error) {
+    console.error('Error in AI user job group analysis:', error);
+    throw error;
+  }
+}
+
+/**
  * Tìm group phù hợp từ job description
  * @param {string} jobDescription - Mô tả công việc
  * @param {Array} jobGroups - Danh sách các nhóm ngành
@@ -852,36 +1019,124 @@ function findGroupByDescription(jobDescription, jobGroups) {
   const descNorm = normalize(jobDescription || "");
   let best = { group: null, score: 0, matched: null };
 
-  for (const group of jobGroups) {
-    // Check group names
-    const groupCandidates = [
-      normalize(group.group_vi || ""),
-      normalize(group.group_en || ""),
-      normalize(group.group_ja || ""),
-    ].filter(Boolean);
+  // Từ khóa mapping cho các công việc phổ biến
+  const jobKeywords = {
+    // Thực phẩm
+    'đầu bếp': 'Thực phẩm',
+    'cook': 'Thực phẩm', 
+    'chef': 'Thực phẩm',
+    'nấu ăn': 'Thực phẩm',
+    'chế biến thực phẩm': 'Thực phẩm',
+    'sản xuất thực phẩm': 'Thực phẩm',
+    'food': 'Thực phẩm',
+    'restaurant': 'Thực phẩm',
+    'nhà hàng': 'Thực phẩm',
+    
+    // Xây dựng
+    'xây dựng': 'Xây dựng',
+    'construction': 'Xây dựng',
+    'thợ xây': 'Xây dựng',
+    'thợ hồ': 'Xây dựng',
+    'thợ sắt': 'Xây dựng',
+    'thợ điện': 'Xây dựng',
+    'thợ nước': 'Xây dựng',
+    'kỹ sư xây dựng': 'Xây dựng',
+    
+    // Cơ khí
+    'cơ khí': 'Cơ khí',
+    'mechanical': 'Cơ khí',
+    'thợ máy': 'Cơ khí',
+    'thợ tiện': 'Cơ khí',
+    'thợ phay': 'Cơ khí',
+    'thợ hàn': 'Cơ khí',
+    'welding': 'Cơ khí',
+    'kỹ sư cơ khí': 'Cơ khí',
+    
+    // Điện tử
+    'điện tử': 'Điện tử',
+    'electronics': 'Điện tử',
+    'thợ điện tử': 'Điện tử',
+    'lắp ráp điện tử': 'Điện tử',
+    'sản xuất điện tử': 'Điện tử',
+    'kỹ sư điện tử': 'Điện tử',
+    
+    // Dệt may
+    'dệt may': 'Dệt may',
+    'textile': 'Dệt may',
+    'thợ may': 'Dệt may',
+    'thợ dệt': 'Dệt may',
+    'sản xuất dệt may': 'Dệt may',
+    'garment': 'Dệt may',
+    
+    // Nông nghiệp
+    'nông nghiệp': 'Nông nghiệp',
+    'agriculture': 'Nông nghiệp',
+    'trồng trọt': 'Nông nghiệp',
+    'chăn nuôi': 'Nông nghiệp',
+    'thủy sản': 'Nông nghiệp',
+    'farming': 'Nông nghiệp',
+    
+    // Dịch vụ
+    'dịch vụ': 'Dịch vụ',
+    'service': 'Dịch vụ',
+    'bán hàng': 'Dịch vụ',
+    'sales': 'Dịch vụ',
+    'khách sạn': 'Dịch vụ',
+    'hotel': 'Dịch vụ',
+    'chăm sóc': 'Dịch vụ',
+    'care': 'Dịch vụ'
+  };
 
-    for (const groupCand of groupCandidates) {
-      const sim = stringSimilarity.compareTwoStrings(descNorm, groupCand);
-      if (sim > best.score) {
-        best = { group: group.group_vi, score: sim, matched: groupCand };
+  // Kiểm tra từ khóa trực tiếp trước
+  for (const [keyword, groupName] of Object.entries(jobKeywords)) {
+    if (descNorm.includes(normalize(keyword))) {
+      // Tìm group tương ứng
+      const targetGroup = jobGroups.find(g => normalize(g.group_vi) === normalize(groupName));
+      if (targetGroup) {
+        best = { 
+          group: targetGroup.group_vi, 
+          score: 0.9, // Điểm cao cho keyword matching
+          matched: keyword 
+        };
+        console.log(`[FIND_GROUP_BY_DESC] Keyword match: "${keyword}" -> "${groupName}"`);
+        break;
       }
     }
+  }
 
-    // Check individual jobs in the group
-    (group.jobs || []).forEach((job) => {
-      const jobCandidates = [
-        normalize(job.vi || ""),
-        normalize(job.en || ""),
-        normalize(job.ja || ""),
+  // Nếu không tìm thấy keyword, dùng similarity matching
+  if (best.score < 0.5) {
+    for (const group of jobGroups) {
+      // Check group names
+      const groupCandidates = [
+        normalize(group.group_vi || ""),
+        normalize(group.group_en || ""),
+        normalize(group.group_ja || ""),
       ].filter(Boolean);
 
-      for (const jobCand of jobCandidates) {
-        const sim = stringSimilarity.compareTwoStrings(descNorm, jobCand);
+      for (const groupCand of groupCandidates) {
+        const sim = stringSimilarity.compareTwoStrings(descNorm, groupCand);
         if (sim > best.score) {
-          best = { group: group.group_vi, score: sim, matched: jobCand };
+          best = { group: group.group_vi, score: sim, matched: groupCand };
         }
       }
-    });
+
+      // Check individual jobs in the group
+      (group.jobs || []).forEach((job) => {
+        const jobCandidates = [
+          normalize(job.vi || ""),
+          normalize(job.en || ""),
+          normalize(job.ja || ""),
+        ].filter(Boolean);
+
+        for (const jobCand of jobCandidates) {
+          const sim = stringSimilarity.compareTwoStrings(descNorm, jobCand);
+          if (sim > best.score) {
+            best = { group: group.group_vi, score: sim, matched: jobCand };
+          }
+        }
+      });
+    }
   }
   
   console.log(`[FIND_GROUP_BY_DESC] Best match: "${best.group}" (score=${best.score.toFixed(2)})`);
@@ -999,22 +1254,39 @@ async function matchUsersWithJD(
     throw new Error("Không thể tải danh sách nhóm ngành: " + error.message);
   }
 
-  // 3. Map JD visa_type to job group
-  const jdGroupResult = getJDGroupFromVisaType(jdDetail.visa_type || '', jobGroups);
-  if (!jdGroupResult.group) {
-    console.warn(`[matchUsersWithJD] Không tìm thấy nhóm ngành phù hợp cho visa_type: ${jdDetail.visa_type || 'N/A'}`);
-    // Fallback: tìm group phù hợp với job description
-    const fallbackGroupResult = findGroupByDescription(jdDetail.job_description || '', jobGroups);
-    if (fallbackGroupResult.group) {
-      console.log(`[matchUsersWithJD] Using fallback group based on description: "${fallbackGroupResult.group}"`);
-      jdGroupResult.group = fallbackGroupResult.group;
-      jdGroupResult.score = fallbackGroupResult.score;
-    } else {
-      console.warn(`[matchUsersWithJD] No suitable group found, will search all users`);
+  // 3. AI tự động phân tích và xác định nhóm ngành
+  let jdGroupResult = { group: null, score: 0, matched: null };
+  
+  try {
+    // AI phân tích để xác định nhóm ngành
+    jdGroupResult = await analyzeJobGroupWithAI(jdDetail, jobGroups);
+    console.log(`[matchUsersWithJD] AI phân tích nhóm ngành: "${jdGroupResult.group}" (score=${jdGroupResult.score.toFixed(2)})`);
+    if (jdGroupResult.reasoning) {
+      console.log(`[AI_REASONING] ${jdGroupResult.reasoning}`);
+    }
+    if (jdGroupResult.keywords && jdGroupResult.keywords.length > 0) {
+      console.log(`[AI_KEYWORDS] ${jdGroupResult.keywords.join(', ')}`);
+    }
+  } catch (aiError) {
+    console.warn(`[matchUsersWithJD] AI analysis failed: ${aiError.message}, using fallback`);
+    
+    // Fallback: sử dụng logic cũ nếu AI thất bại
+    if (jdDetail.job_name) {
+      jdGroupResult = findGroupByDescription(jdDetail.job_name, jobGroups);
+    } else if (jdDetail.visa_type) {
+      jdGroupResult = getJDGroupFromVisaType(jdDetail.visa_type, jobGroups);
+    } else if (jdDetail.job_description) {
+      jdGroupResult = findGroupByDescription(jdDetail.job_description, jobGroups);
     }
   }
+  
+  if (!jdGroupResult.group) {
+    console.warn(`[matchUsersWithJD] Không tìm thấy nhóm ngành phù hợp cho job_name: "${jdDetail.job_name || 'N/A'}", visa_type: "${jdDetail.visa_type || 'N/A'}"`);
+    console.warn(`[matchUsersWithJD] No suitable group found, will search all users`);
+  }
+  
   console.log(
-    `[matchUsersWithJD] JD visa_type="${jdDetail.visa_type}" -> group="${jdGroupResult.group}" (score=${jdGroupResult.score.toFixed(2)})`
+    `[matchUsersWithJD] JD job_name="${jdDetail.job_name || 'N/A'}" -> group="${jdGroupResult.group}" (score=${jdGroupResult.score.toFixed(2)})`
   );
 
   // Initialize tracking variables
@@ -1069,7 +1341,14 @@ async function matchUsersWithJD(
       const jobTitle = user.jobTitle || "";
       if (!jobTitle) continue;
 
-      const userGroupResult = mapUserJobToGroup(jobTitle, jobGroups, jdDetail.job_description || '');
+      // Sử dụng AI để matching user job với group (nếu có thể)
+      let userGroupResult;
+      try {
+        userGroupResult = await analyzeUserJobGroupWithAI(jobTitle, jobGroups, jdDetail);
+      } catch (aiError) {
+        console.warn(`[USER_GROUP_AI] AI analysis failed for user ${user._id}: ${aiError.message}, using fallback`);
+        userGroupResult = mapUserJobToGroup(jobTitle, jobGroups, jdDetail.job_description || '');
+      }
 
       // Process all users but mark group match status
       // Phase 1: Process all users, mark groupMatch status
@@ -1081,7 +1360,16 @@ async function matchUsersWithJD(
         // Phase 1: Check if user belongs to same group as JD
         groupMatch = userGroupResult.group &&
         normalize(userGroupResult.group) === normalize(jdGroupResult.group);
+        
+        // Nếu AI đã xác định isSameGroup, ưu tiên sử dụng thông tin đó
+        if (userGroupResult.isSameGroup !== undefined) {
+          groupMatch = userGroupResult.isSameGroup;
+        }
+        
         console.log(`[GROUP_CHECK] User ${user._id}: groupMatch=${groupMatch}, userGroup="${userGroupResult.group}", jdGroup="${jdGroupResult.group}"`);
+        if (userGroupResult.reasoning) {
+          console.log(`[USER_AI_REASONING] ${userGroupResult.reasoning}`);
+        }
       } else {
         // Phase 2: More flexible matching
         groupMatch = userGroupResult.group && userGroupResult.score > 0.3;
