@@ -17,8 +17,10 @@ const aiAnalysisService = require("./aiAnalysisService");
  * @returns {Object} Parsed result hoặc fallback object
  */
 function parseAIResponse(response, functionName = 'unknown') {
+  let jsonStr = ''; // Declare outside try block
+  
   try {
-    let jsonStr = response.trim();
+    jsonStr = response.trim();
     
     // Remove markdown code blocks if present
     if (jsonStr.startsWith('```json')) {
@@ -87,9 +89,33 @@ function fixJSONString(jsonStr) {
   // Fix unescaped quotes in strings
   jsonStr = jsonStr.replace(/"([^"]*)"([^"]*)"([^"]*)":/g, '"$1\\"$2\\"$3":');
   
-  // Fix missing commas
+  // Fix missing commas between properties
   jsonStr = jsonStr.replace(/"\s*}\s*"/g, '", "');
   jsonStr = jsonStr.replace(/"\s*]\s*"/g, '", "');
+  
+  // Fix missing commas after property values
+  jsonStr = jsonStr.replace(/"\s*:\s*"[^"]*"\s*"/g, (match) => {
+    if (!match.includes(',')) {
+      return match.replace(/"$/, '",');
+    }
+    return match;
+  });
+  
+  // Fix missing commas after numbers
+  jsonStr = jsonStr.replace(/"\s*:\s*[0-9.]+\s*"/g, (match) => {
+    if (!match.includes(',')) {
+      return match.replace(/"$/, '",');
+    }
+    return match;
+  });
+  
+  // Fix missing commas after booleans
+  jsonStr = jsonStr.replace(/"\s*:\s*(true|false)\s*"/g, (match) => {
+    if (!match.includes(',')) {
+      return match.replace(/"$/, '",');
+    }
+    return match;
+  });
   
   // Fix trailing commas
   jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
@@ -170,8 +196,8 @@ function extractPartialData(response, functionName) {
 // Rate limiting cho AI requests
 let aiRequestCount = 0;
 let lastResetTime = Date.now();
-const maxAIRequestsPerMinute = 15; // Giảm để tránh rate limit
-const maxTokensPerMinute = 150000; // Giới hạn token per minute
+const maxAIRequestsPerMinute = 10; // Giảm thêm để tránh rate limit
+const maxTokensPerMinute = 100000; // Giảm token limit để an toàn hơn
 let tokensUsedThisMinute = 0;
 
 /**
@@ -1517,9 +1543,15 @@ async function matchUsersWithJD(
       // Sử dụng AI để matching user job với group (với error handling cải thiện)
       let userGroupResult;
       try {
+        // Kiểm tra rate limit trước khi gọi AI
+        checkRateLimit(150);
         userGroupResult = await analyzeUserJobGroupWithAI(jobTitle, jobGroups, jdDetail);
       } catch (aiError) {
-        console.warn(`[USER_GROUP_AI] AI analysis failed for user ${user._id}: ${aiError.message}, using fallback`);
+        if (aiError.message.includes('Rate limit') || aiError.message.includes('Token limit')) {
+          console.warn(`[USER_GROUP_AI] Rate limit hit for user ${user._id}: ${aiError.message}, using fallback`);
+        } else {
+          console.warn(`[USER_GROUP_AI] AI analysis failed for user ${user._id}: ${aiError.message}, using fallback`);
+        }
         try {
           userGroupResult = mapUserJobToGroup(jobTitle, jobGroups, jdDetail.job_description || '');
         } catch (fallbackError) {
@@ -1589,9 +1621,9 @@ async function matchUsersWithJD(
               throw new Error('Rate limit reached, using fallback');
             }
 
-            // Add minimal delay between AI requests to avoid rate limiting
+            // Add delay between AI requests to avoid rate limiting
             if (aiRequestCount > 0) {
-              const delay = Math.random() * 500 + 200; // 200-700ms random delay (giảm từ 1-3s)
+              const delay = Math.random() * 1000 + 500; // 500-1500ms random delay
               console.log(`[AI_DELAY] Waiting ${delay.toFixed(0)}ms before next AI request...`);
               await new Promise(resolve => setTimeout(resolve, delay));
             }
