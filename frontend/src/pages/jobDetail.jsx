@@ -150,18 +150,18 @@ const JobDetail = () => {
         ) : currentCandidates.length > 0 ? (
           <>
             <div className="overflow-x-auto rounded-lg border border-gray-200">
-              <table className="min-w-full border-collapse text-sm">
+              <table className="min-w-full border-collapse text-sm table-auto" style={{ minWidth: '1200px' }}>
                 <thead>
                   <tr className="bg-blue-50 text-gray-700">
-                    <th className="p-3 border">Họ tên</th>
-                    <th className="p-3 border">Giới tính</th>
-                    <th className="p-3 border">Ngày sinh</th>
-                    <th className="p-3 border">CMT/CCCD</th>
-                    <th className="p-3 border">Email</th>
-                    <th className="p-3 border">Ngành nghề</th>
-                    <th className="p-3 border">Mạng xã hội</th>
-                    <th className="p-3 border">Tình trạng</th>
-                    <th className="p-3 border">Điểm phù hợp</th>
+                    <th className="p-3 border" style={{ width: '250px', minWidth: '200px' }}>Họ tên</th>
+                    <th className="p-3 border" style={{ width: '100px', minWidth: '80px' }}>Giới tính</th>
+                    <th className="p-3 border" style={{ width: '120px', minWidth: '100px' }}>Ngày sinh</th>
+                    <th className="p-3 border" style={{ width: '150px', minWidth: '120px' }}>CMT/CCCD</th>
+                    <th className="p-3 border" style={{ width: '200px', minWidth: '150px' }}>Email</th>
+                    <th className="p-3 border" style={{ width: '180px', minWidth: '150px' }}>Ngành nghề</th>
+                    <th className="p-3 border" style={{ width: '150px', minWidth: '120px' }}>Facebook</th>
+                    <th className="p-3 border" style={{ width: '120px', minWidth: '100px' }}>Tình trạng</th>
+                    <th className="p-3 border" style={{ width: '150px', minWidth: '120px' }}>Điểm phù hợp</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -170,66 +170,48 @@ const JobDetail = () => {
                       key={user._id}
                       className="hover:bg-gray-50 transition"
                     >
-                      <td className="p-3 border font-medium text-gray-800">
+                      <td className="p-3 border font-medium text-gray-800 break-words" style={{ width: '250px', minWidth: '200px' }}>
                         {user.fullName}
                       </td>
-                      <td className="p-3 border">{user.gender}</td>
-                      <td className="p-3 border">{user.birthDate}</td>
-                      <td className="p-3 border">{user.idNumber}</td>
-                      <td className="p-3 border">{user.email}</td>
-                      <td className="p-3 border">
-                        <span className="bg-blue-100 text-blue-600 px-2 py-1 rounded-full text-xs">
+                      <td className="p-3 border" style={{ width: '100px', minWidth: '80px' }}>{user.gender}</td>
+                      <td className="p-3 border" style={{ width: '120px', minWidth: '100px' }}>{user.birthDate}</td>
+                      <td className="p-3 border" style={{ width: '150px', minWidth: '120px' }}>{user.idNumber}</td>
+                      <td className="p-3 border break-words" style={{ width: '200px', minWidth: '150px' }}>{user.email}</td>
+                      <td className="p-3 border" style={{ width: '180px', minWidth: '150px' }}>
+                        <span className="bg-blue-100 text-blue-600 px-2 py-1 rounded-full text-xs break-words">
                           {user.jobTitle}
                         </span>
                       </td>
-                      <td className="p-3 border">
-                        <div className="flex flex-col space-y-1">
-                          {user.socialMedia?.facebook && (
-                            <a 
-                              href={user.socialMedia.facebook} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:text-blue-800 text-xs"
-                            >
-                              📘 Facebook
-                            </a>
-                          )}
-                          {user.socialMedia?.linkedin && (
-                            <a 
-                              href={user.socialMedia.linkedin} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="text-blue-700 hover:text-blue-900 text-xs"
-                            >
-                              💼 LinkedIn
-                            </a>
-                          )}
-                          {user.socialMedia?.zalo && (
-                            <a 
-                              href={user.socialMedia.zalo} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="text-blue-500 hover:text-blue-700 text-xs"
-                            >
-                              💬 Zalo
-                            </a>
-                          )}
-                          {user.socialMedia?.instagram && (
-                            <a 
-                              href={user.socialMedia.instagram} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="text-pink-600 hover:text-pink-800 text-xs"
-                            >
-                              📷 Instagram
-                            </a>
-                          )}
-                          {!user.socialMedia && (
-                            <span className="text-gray-400 text-xs">Chưa có</span>
-                          )}
-                        </div>
+                      <td className="p-3 border" style={{ width: '150px', minWidth: '120px' }}>
+                        {user.socialNetwork ? (
+                          (() => {
+                            const cleanSocialNetwork = user.socialNetwork.replace(/\/$/, '').trim();
+                            const isUrl = cleanSocialNetwork.startsWith('http') || cleanSocialNetwork.startsWith('www') || cleanSocialNetwork.includes('facebook.com');
+                            
+             if (isUrl) {
+               return (
+                 <a
+                   href={cleanSocialNetwork.startsWith('http') ? cleanSocialNetwork : `https://${cleanSocialNetwork}`}
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                 >
+                   Facebook
+                 </a>
+               );
+             } else {
+               return (
+                 <span className="text-blue-600 text-xs font-medium">
+                   {cleanSocialNetwork}
+                 </span>
+               );
+             }
+                          })()
+                        ) : (
+                          <span className="text-gray-400 text-xs">Chưa có</span>
+                        )}
                       </td>
-                      <td className="p-3 border">
+                      <td className="p-3 border" style={{ width: '120px', minWidth: '100px' }}>
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                           user.status === 'available' 
                             ? 'bg-green-100 text-green-800' 
@@ -248,7 +230,7 @@ const JobDetail = () => {
                            'Chưa xác định'}
                         </span>
                       </td>
-                      <td className="p-3 border">
+                      <td className="p-3 border" style={{ width: '150px', minWidth: '120px' }}>
                         <div className="flex items-center space-x-2">
                           <div className="w-16 bg-gray-200 rounded-full h-2">
                             <div 

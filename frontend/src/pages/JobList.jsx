@@ -1,4 +1,4 @@
-import {
+ import {
   CheckCircleOutlined,
   DeleteOutlined,
   EyeOutlined,
@@ -166,7 +166,19 @@ const JobList = () => {
         console.log('📈 Summary data:', summary);
         console.log('🔍 Filtering data:', filtering);
         
-        setMatchingCandidates(candidates);
+        // Debug: Log first candidate structure
+        if (candidates.length > 0) {
+          console.log('🔍 First candidate structure:', Object.keys(candidates[0]));
+          console.log('🔍 First candidate data:', candidates[0]);
+        }
+        
+        // Add default status if not present
+        const candidatesWithDefaults = candidates.map((candidate, index) => ({
+          ...candidate,
+          status: candidate.status || (index === 0 ? 'available' : 'pending')
+        }));
+        
+        setMatchingCandidates(candidatesWithDefaults);
         setMatchingProgress(progress);
         setShowCandidatesModal(true);
         
@@ -480,6 +492,8 @@ const JobList = () => {
     {
       title: 'Thao tác',
       key: 'actions',
+      width: 120,
+      fixed: 'right',
       render: (_, record) => (
         <Space>
           <Tooltip title="Xem chi tiết">
@@ -931,12 +945,20 @@ const JobList = () => {
               title: 'Tên',
               dataIndex: 'fullName',
               key: 'fullName',
-              render: (text) => <Text strong>{text || 'Chưa có'}</Text>
+              width: 200,
+              minWidth: 150,
+              ellipsis: true,
+              render: (text) => (
+                <Tooltip title={text}>
+                  <Text strong>{text || 'Chưa có'}</Text>
+                </Tooltip>
+              )
             },
             {
               title: 'Tuổi',
               dataIndex: 'birthDate',
               key: 'age',
+              width: 80,
               render: (birthDate) => {
                 if (!birthDate) return '-';
                 const today = new Date();
@@ -949,6 +971,7 @@ const JobList = () => {
               title: 'Giới tính',
               dataIndex: 'gender',
               key: 'gender',
+              width: 100,
               render: (gender) => {
                 if (!gender) return <Tag color="default">N/A</Tag>;
                 
@@ -990,24 +1013,33 @@ const JobList = () => {
               title: 'Kinh nghiệm',
               dataIndex: 'contractDuration',
               key: 'experience',
+              width: 120,
               render: (duration) => duration ? duration : '-'
             },
             {
               title: 'Công việc hiện tại',
               dataIndex: 'jobTitle',
               key: 'jobTitle',
-              render: (job) => job ? <Tag color="green">{job}</Tag> : '-'
+              width: 180,
+              ellipsis: true,
+              render: (job) => job ? (
+                <Tooltip title={job}>
+                  <Tag color="green">{job}</Tag>
+                </Tooltip>
+              ) : '-'
             },
             {
               title: 'Loại visa',
               dataIndex: 'dispatchType',
               key: 'visa_type',
+              width: 100,
               render: (type) => type ? <Tag color="orange">{type}</Tag> : '-'
             },
             {
               title: 'Thời gian hợp đồng còn lại',
               dataIndex: 'remainingYears',
               key: 'contract_remaining',
+              width: 180,
               render: (remaining) => {
                 if (!remaining) return '-';
                 const years = parseFloat(remaining);
@@ -1020,6 +1052,7 @@ const JobList = () => {
               title: 'Nhóm ngành',
               dataIndex: 'groupMatch',
               key: 'group_match',
+              width: 150,
               render: (groupMatch, record) => {
                 const isGroupMatch = groupMatch === true;
                 const groupName = record.matchedGroup || 'N/A';
@@ -1037,74 +1070,57 @@ const JobList = () => {
               }
             },
             {
-              title: 'Mạng xã hội',
-              dataIndex: 'socialMedia',
-              key: 'social_media',
-              render: (socialMedia) => {
-                if (!socialMedia) return <Text type="secondary">Chưa có</Text>;
+              title: 'Facebook',
+              dataIndex: 'socialNetwork',
+              key: 'social_network',
+              width: 120,
+              ellipsis: true,
+              render: (socialNetwork, record) => {
+                console.log('Rendering social network for:', record.fullName, socialNetwork);
                 
-                const socialLinks = [];
-                if (socialMedia.facebook) {
-                  socialLinks.push(
-                    <a 
-                      key="facebook"
-                      href={socialMedia.facebook} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      style={{ marginRight: 8, color: '#1877f2' }}
-                    >
-                      📘
-                    </a>
-                  );
-                }
-                if (socialMedia.linkedin) {
-                  socialLinks.push(
-                    <a 
-                      key="linkedin"
-                      href={socialMedia.linkedin} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      style={{ marginRight: 8, color: '#0077b5' }}
-                    >
-                      💼
-                    </a>
-                  );
-                }
-                if (socialMedia.zalo) {
-                  socialLinks.push(
-                    <a 
-                      key="zalo"
-                      href={socialMedia.zalo} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      style={{ marginRight: 8, color: '#0068ff' }}
-                    >
-                      💬
-                    </a>
-                  );
-                }
-                if (socialMedia.instagram) {
-                  socialLinks.push(
-                    <a 
-                      key="instagram"
-                      href={socialMedia.instagram} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      style={{ marginRight: 8, color: '#e4405f' }}
-                    >
-                      📷
-                    </a>
-                  );
+                if (!socialNetwork || socialNetwork.trim() === '') {
+                  return <Text type="secondary">Chưa có</Text>;
                 }
                 
-                return socialLinks.length > 0 ? socialLinks : <Text type="secondary">Chưa có</Text>;
+                // Clean up the social network data (remove trailing slash)
+                const cleanSocialNetwork = socialNetwork.replace(/\/$/, '').trim();
+                
+                // Check if it's a valid URL
+                const isUrl = cleanSocialNetwork.startsWith('http') || cleanSocialNetwork.startsWith('www') || cleanSocialNetwork.includes('facebook.com');
+                
+                if (isUrl) {
+                  return (
+                    <a 
+                      href={cleanSocialNetwork.startsWith('http') ? cleanSocialNetwork : `https://${cleanSocialNetwork}`}
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      style={{ 
+                        color: '#1877f2',
+                        textDecoration: 'none',
+                        fontWeight: 500
+                      }}
+                      title="Facebook"
+                    >
+                      Facebook
+                    </a>
+                  );
+                } else {
+                  return (
+                    <Text style={{ fontWeight: 500 }}>
+                      {cleanSocialNetwork}
+                    </Text>
+                  );
+                }
               }
             },
             {
               title: 'Tình trạng',
               dataIndex: 'status',
               key: 'status',
-              render: (status) => {
+              width: 120,
+              render: (status, record) => {
+                console.log('Rendering status for:', record.fullName, status);
+                
                 const statusConfig = {
                   'available': { color: 'green', text: 'Sẵn sàng' },
                   'interviewed': { color: 'orange', text: 'Đã phỏng vấn' },
@@ -1126,6 +1142,7 @@ const JobList = () => {
               title: 'Điểm phù hợp',
               dataIndex: 'matchScore',
               key: 'match_score',
+              width: 150,
               render: (score, record) => {
                 if (!score) return <Progress percent={0} size="small" status="exception" />;
                 const percentage = Math.round(score * 100);
@@ -1166,6 +1183,8 @@ const JobList = () => {
             {
               title: 'Hành động',
               key: 'actions',
+              width: 120,
+              fixed: 'right',
               render: (_, record) => (
                 <CandidateStatusManager 
                   candidate={record} 
@@ -1269,85 +1288,52 @@ const JobList = () => {
                      'Chưa xác định'}
                   </Tag>
                 </p>
-                <p><strong>Mạng xã hội:</strong>
-                  <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                    {selectedCandidate.socialMedia?.facebook && (
-                      <a 
-                        href={selectedCandidate.socialMedia.facebook} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        style={{ 
-                          display: 'inline-flex', 
-                          alignItems: 'center', 
-                          padding: '4px 8px', 
-                          backgroundColor: '#1877f2', 
-                          color: 'white', 
-                          borderRadius: '4px', 
-                          textDecoration: 'none',
-                          fontSize: '12px'
-                        }}
-                      >
-                        📘 Facebook
-                      </a>
-                    )}
-                    {selectedCandidate.socialMedia?.linkedin && (
-                      <a 
-                        href={selectedCandidate.socialMedia.linkedin} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        style={{ 
-                          display: 'inline-flex', 
-                          alignItems: 'center', 
-                          padding: '4px 8px', 
-                          backgroundColor: '#0077b5', 
-                          color: 'white', 
-                          borderRadius: '4px', 
-                          textDecoration: 'none',
-                          fontSize: '12px'
-                        }}
-                      >
-                        💼 LinkedIn
-                      </a>
-                    )}
-                    {selectedCandidate.socialMedia?.zalo && (
-                      <a 
-                        href={selectedCandidate.socialMedia.zalo} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        style={{ 
-                          display: 'inline-flex', 
-                          alignItems: 'center', 
-                          padding: '4px 8px', 
-                          backgroundColor: '#0068ff', 
-                          color: 'white', 
-                          borderRadius: '4px', 
-                          textDecoration: 'none',
-                          fontSize: '12px'
-                        }}
-                      >
-                        💬 Zalo
-                      </a>
-                    )}
-                    {selectedCandidate.socialMedia?.instagram && (
-                      <a 
-                        href={selectedCandidate.socialMedia.instagram} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        style={{ 
-                          display: 'inline-flex', 
-                          alignItems: 'center', 
-                          padding: '4px 8px', 
-                          backgroundColor: '#e4405f', 
-                          color: 'white', 
-                          borderRadius: '4px', 
-                          textDecoration: 'none',
-                          fontSize: '12px'
-                        }}
-                      >
-                        📷 Instagram
-                      </a>
-                    )}
-                    {!selectedCandidate.socialMedia && (
+                <p><strong>Facebook:</strong>
+                  <div style={{ marginTop: 8 }}>
+                    {selectedCandidate.socialNetwork ? (
+                      (() => {
+                        const cleanSocialNetwork = selectedCandidate.socialNetwork.replace(/\/$/, '').trim();
+                        const isUrl = cleanSocialNetwork.startsWith('http') || cleanSocialNetwork.startsWith('www') || cleanSocialNetwork.includes('facebook.com');
+                        
+                        if (isUrl) {
+                          return (
+                            <a 
+                              href={cleanSocialNetwork.startsWith('http') ? cleanSocialNetwork : `https://${cleanSocialNetwork}`}
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              style={{ 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                padding: '4px 8px', 
+                                backgroundColor: '#1877f2', 
+                                color: 'white', 
+                                borderRadius: '4px', 
+                                textDecoration: 'none',
+                                fontSize: '12px',
+                                fontWeight: 500
+                              }}
+                            >
+                              Facebook
+                            </a>
+                          );
+                        } else {
+                          return (
+                            <span style={{ 
+                              display: 'inline-flex', 
+                              alignItems: 'center', 
+                              padding: '4px 8px', 
+                              backgroundColor: '#f0f8ff', 
+                              color: '#1877f2', 
+                              borderRadius: '4px', 
+                              fontSize: '12px',
+                              fontWeight: 500
+                            }}>
+                              {cleanSocialNetwork}
+                            </span>
+                          );
+                        }
+                      })()
+                    ) : (
                       <span style={{ color: '#999', fontSize: '12px' }}>Chưa có thông tin</span>
                     )}
                   </div>
