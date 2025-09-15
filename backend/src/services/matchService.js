@@ -10,6 +10,58 @@ const aiAnalysisService = require("./aiAnalysisService");
 // AI MATCHING FUNCTIONS
 // ============================================
 
+/**
+ * Parse AI response JSON với error handling robust
+ * @param {string} response - AI response
+ * @param {string} functionName - Tên function để logging
+ * @returns {Object} Parsed result hoặc fallback object
+ */
+function parseAIResponse(response, functionName = 'unknown') {
+  try {
+    let jsonStr = response.trim();
+    
+    // Remove markdown code blocks if present
+    if (jsonStr.startsWith('```json')) {
+      jsonStr = jsonStr.replace(/```json\n?/, '').replace(/\n?```$/, '');
+    } else if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.replace(/```\n?/, '').replace(/\n?```$/, '');
+    }
+    
+    // Fix common JSON issues
+    jsonStr = jsonStr.replace(/\n/g, ' ').replace(/\s+/g, ' ');
+    
+    // Try to extract JSON from response if it's mixed with text
+    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[0];
+    }
+    
+    return JSON.parse(jsonStr);
+  } catch (parseError) {
+    console.error(`Error parsing AI response in ${functionName}:`, parseError);
+    console.error('Raw AI response:', response);
+    
+    // Return fallback based on function type
+    if (functionName.includes('JobGroup')) {
+      return {
+        group_name: null,
+        confidence: 0.5,
+        reasoning: 'AI response parsing failed',
+        matched_keywords: []
+      };
+    } else if (functionName.includes('UserJobGroup')) {
+      return {
+        group_name: null,
+        confidence: 0.5,
+        reasoning: 'AI response parsing failed',
+        is_same_group: false
+      };
+    }
+    
+    return {};
+  }
+}
+
 // Rate limiting cho AI requests
 let aiRequestCount = 0;
 let lastResetTime = Date.now();
@@ -877,7 +929,7 @@ Hãy phân tích và trả về kết quả theo format JSON:
 Chỉ trả về JSON, không có text khác.`;
 
     const response = await aiAnalysisService.callAI(prompt);
-    const result = JSON.parse(response.trim());
+    const result = parseAIResponse(response, 'analyzeJobGroupWithAI');
     
     // Tìm group tương ứng trong database
     const matchedGroup = jobGroups.find(g => 
@@ -961,7 +1013,7 @@ Hãy phân tích và trả về kết quả theo format JSON:
 Chỉ trả về JSON, không có text khác.`;
 
     const response = await aiAnalysisService.callAI(prompt);
-    const result = JSON.parse(response.trim());
+    const result = parseAIResponse(response, 'analyzeUserJobGroupWithAI');
     
     // Tìm group tương ứng trong database
     const matchedGroup = jobGroups.find(g => 
@@ -1251,7 +1303,7 @@ async function matchUsersWithJD(
   let jdGroupResult = { group: null, score: 0, matched: null };
   
   try {
-    // AI phân tích để xác định nhóm ngành
+    // AI phân tích để xác định nhóm ngành với error handling cải thiện
     jdGroupResult = await analyzeJobGroupWithAI(jdDetail, jobGroups);
     console.log(`[matchUsersWithJD] AI phân tích nhóm ngành: "${jdGroupResult.group}" (score=${jdGroupResult.score.toFixed(2)})`);
     if (jdGroupResult.reasoning) {
@@ -1342,7 +1394,7 @@ async function matchUsersWithJD(
       const jobTitle = user.jobTitle || "";
       if (!jobTitle) continue;
 
-      // Sử dụng AI để matching user job với group (nếu có thể)
+      // Sử dụng AI để matching user job với group (với error handling cải thiện)
       let userGroupResult;
       try {
         userGroupResult = await analyzeUserJobGroupWithAI(jobTitle, jobGroups, jdDetail);
