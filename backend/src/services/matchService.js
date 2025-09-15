@@ -1137,12 +1137,17 @@ async function matchUsersWithJD(
               jdDetail
             );
             
+            // Apply group match bonus (10% boost for same group)
+            const finalScore = groupMatch ? Math.min(1.0, aiMatchScore + 0.1) : aiMatchScore;
+            
             // STRICT FILTERING: Include candidates with good AI score regardless of group match
-            if (aiMatchScore > 0.5) {
+            if (finalScore > 0.5) {
             matchedUsers.push({
               ...user,
               matchedGroup: userGroupResult.group,
-                matchScore: aiMatchScore,
+                matchScore: finalScore,
+                originalAIScore: aiMatchScore, // Keep original AI score for reference
+                groupMatchBonus: groupMatch ? 0.1 : 0, // Track the bonus applied
               matchedCandidate: userGroupResult.matched,
               contractEndDate: endDate,
               remainingYears: diffYears?.toFixed(2),
@@ -1150,7 +1155,7 @@ async function matchUsersWithJD(
                 groupMatch: groupMatch
             });
             matchedUserIds.add(user._id);
-              console.log(`[STRICT_FILTER] User ${user._id} accepted by AI: score=${aiMatchScore.toFixed(2)} (≥50%), groupMatch=${groupMatch}`);
+              console.log(`[STRICT_FILTER] User ${user._id} accepted by AI: finalScore=${finalScore.toFixed(2)} (original=${aiMatchScore.toFixed(2)}, groupMatch=${groupMatch}, bonus=${groupMatch ? 0.1 : 0})`);
             } else {
               console.log(`[STRICT_FILTER] User ${user._id} rejected by AI: score=${aiMatchScore.toFixed(2)} (<50%)`);
             }
@@ -1164,17 +1169,22 @@ async function matchUsersWithJD(
             // Enhanced fallback scoring with strict filtering
             const fallbackResult = calculateFallbackScore(user, jdDetail, userGroupResult.score);
             
+            // Apply group match bonus (10% boost for same group)
+            const finalFallbackScore = groupMatch ? Math.min(1.0, fallbackResult.score + 0.1) : fallbackResult.score;
+            
             // Debug logging for high-score users
-            if (fallbackResult.score > 0.8) {
-              console.log(`[DEBUG_HIGH_SCORE] User ${user._id}: score=${fallbackResult.score.toFixed(2)}, critical=${fallbackResult.allCriticalMatched}, criteria=${fallbackResult.criticalMatched}/${fallbackResult.criticalCriteria}`);
+            if (finalFallbackScore > 0.8) {
+              console.log(`[DEBUG_HIGH_SCORE] User ${user._id}: score=${finalFallbackScore.toFixed(2)}, critical=${fallbackResult.allCriticalMatched}, criteria=${fallbackResult.criticalMatched}/${fallbackResult.criticalCriteria}`);
             }
             
             // STRICT MAIN CRITERIA: Only accept if main criteria (gender + age) are met + score > 50%
-            if (fallbackResult.allCriticalMatched && fallbackResult.score > 0.5) {
+            if (fallbackResult.allCriticalMatched && finalFallbackScore > 0.5) {
             matchedUsers.push({
               ...user,
               matchedGroup: userGroupResult.group,
-                matchScore: fallbackResult.score,
+                matchScore: finalFallbackScore,
+                originalFallbackScore: fallbackResult.score, // Keep original fallback score for reference
+                groupMatchBonus: groupMatch ? 0.1 : 0, // Track the bonus applied
               matchedCandidate: userGroupResult.matched,
               contractEndDate: endDate,
               remainingYears: diffYears?.toFixed(2),
@@ -1186,7 +1196,7 @@ async function matchUsersWithJD(
                 criticalMatched: fallbackResult.criticalMatched
             });
             matchedUserIds.add(user._id);
-              console.log(`[MAIN_CRITERIA_FILTER] User ${user._id} accepted: main_criteria=${fallbackResult.allCriticalMatched}, score=${fallbackResult.score.toFixed(2)} (>50%), groupMatch=${groupMatch}`);
+              console.log(`[MAIN_CRITERIA_FILTER] User ${user._id} accepted: main_criteria=${fallbackResult.allCriticalMatched}, finalScore=${finalFallbackScore.toFixed(2)} (original=${fallbackResult.score.toFixed(2)}, groupMatch=${groupMatch}, bonus=${groupMatch ? 0.1 : 0})`);
             } else {
               const reason = !fallbackResult.allCriticalMatched ? 'main_criteria_failed' : 'score_too_low';
               console.log(`[MAIN_CRITERIA_FILTER] User ${user._id} rejected: reason=${reason}, main_criteria=${fallbackResult.allCriticalMatched}, score=${fallbackResult.score.toFixed(2)}`);
@@ -1303,8 +1313,23 @@ async function matchUsersWithJD(
     }
   }
 
-  // 5. Sort results by match score (descending)
-  matchedUsers.sort((a, b) => b.matchScore - a.matchScore);
+  // 5. Sort results with priority for same industry group
+  matchedUsers.sort((a, b) => {
+    // First priority: Same group candidates
+    const aSameGroup = a.groupMatch === true;
+    const bSameGroup = b.groupMatch === true;
+    
+    if (aSameGroup && !bSameGroup) return -1; // a comes first
+    if (!aSameGroup && bSameGroup) return 1;  // b comes first
+    
+    // Second priority: Match score (descending)
+    return b.matchScore - a.matchScore;
+  });
+  
+  // Log priority sorting results
+  const sameGroupCount = matchedUsers.filter(u => u.groupMatch === true).length;
+  const differentGroupCount = matchedUsers.filter(u => u.groupMatch !== true).length;
+  console.log(`[PRIORITY_SORT] Sorted ${matchedUsers.length} candidates: ${sameGroupCount} same-group (priority), ${differentGroupCount} different-group`);
 
   // 6. Final validation: Ensure all candidates have score > 50%
   const validCandidates = matchedUsers.filter(user => user.matchScore && user.matchScore > 0.5);
