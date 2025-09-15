@@ -13,7 +13,7 @@ const aiAnalysisService = require("./aiAnalysisService");
 // Rate limiting cho AI requests
 let aiRequestCount = 0;
 let lastResetTime = Date.now();
-const maxAIRequestsPerMinute = 10; // Conservative rate limit
+const maxAIRequestsPerMinute = 30; // Tăng rate limit để xử lý nhanh hơn
 
 /**
  * Reset AI request counter mỗi phút
@@ -46,22 +46,15 @@ async function calculateAIMatchScore(jdText, userProfile, jdDetail) {
     
     aiRequestCount++;
     
-    // Tạo prompt ngắn gọn hơn để tiết kiệm tokens
-    const prompt = `Đánh giá độ phù hợp ứng viên với JD (0.0-1.0):
+    // Tạo prompt siêu ngắn gọn để tăng tốc độ xử lý
+    const prompt = `Đánh giá phù hợp (0.0-1.0):
 
-JD: ${jdText.substring(0, 500)}...
+JD: ${jdText.substring(0, 200)}...
 Visa: ${jdDetail.visa_type || 'N/A'}
-Tuổi: ${jdDetail.age_range || 'N/A'}
-Giới tính yêu cầu: ${jdDetail.gender || 'N/A'}
 
-Ứng viên:
-- Tên: ${userProfile.fullName || 'N/A'}
-- Tuổi: ${userProfile.birthDate ? calculateAge(userProfile.birthDate) : 'N/A'}
-- Giới tính: ${userProfile.gender || 'N/A'} (男=Nam, 女=Nữ)
-- Công việc: ${userProfile.jobTitle || 'N/A'}
-- Visa: ${userProfile.dispatchType || 'N/A'}
+User: ${userProfile.jobTitle || 'N/A'} | ${userProfile.gender || 'N/A'}
 
-Lưu ý: 男=Nam, 女=Nữ. Chỉ trả về số từ 0.0 đến 1.0:`;
+Chỉ trả về số:`;
 
     const response = await aiAnalysisService.callAI(prompt);
     const score = parseFloat(response.trim());
@@ -1218,8 +1211,8 @@ function mapUserJobToGroup(jobTitle, jobGroups, jdDescription = '') {
 async function matchUsersWithJD(
   jdId,
   filePath = null,
-  batchSize = 20, // Giảm batch size để tăng tốc độ xử lý
-  concurrency = 2  // Giảm concurrency để tăng tốc độ và tránh rate limit
+  batchSize = 50, // Tăng batch size để xử lý nhiều user cùng lúc
+  concurrency = 5  // Tăng concurrency để xử lý song song nhiều hơn
 ) {
   console.log(`[matchUsersWithJD] Starting matching process for JD id=${jdId}`);
   console.time(`[matchUsersWithJD:${jdId}]`);
@@ -1271,12 +1264,20 @@ async function matchUsersWithJD(
     console.warn(`[matchUsersWithJD] AI analysis failed: ${aiError.message}, using fallback`);
     
     // Fallback: sử dụng logic cũ nếu AI thất bại
-    if (jdDetail.job_name) {
-      jdGroupResult = findGroupByDescription(jdDetail.job_name, jobGroups);
-    } else if (jdDetail.visa_type) {
-      jdGroupResult = getJDGroupFromVisaType(jdDetail.visa_type, jobGroups);
-    } else if (jdDetail.job_description) {
-      jdGroupResult = findGroupByDescription(jdDetail.job_description, jobGroups);
+    try {
+      if (jdDetail.job_name) {
+        jdGroupResult = findGroupByDescription(jdDetail.job_name, jobGroups);
+        console.log(`[FALLBACK] Using job_name: "${jdDetail.job_name}" -> group="${jdGroupResult.group}"`);
+      } else if (jdDetail.visa_type) {
+        jdGroupResult = getJDGroupFromVisaType(jdDetail.visa_type, jobGroups);
+        console.log(`[FALLBACK] Using visa_type: "${jdDetail.visa_type}" -> group="${jdGroupResult.group}"`);
+      } else if (jdDetail.job_description) {
+        jdGroupResult = findGroupByDescription(jdDetail.job_description, jobGroups);
+        console.log(`[FALLBACK] Using job_description -> group="${jdGroupResult.group}"`);
+      }
+    } catch (fallbackError) {
+      console.error(`[FALLBACK_ERROR] Fallback analysis also failed: ${fallbackError.message}`);
+      jdGroupResult = { group: null, score: 0, matched: null };
     }
   }
   
@@ -1297,8 +1298,8 @@ async function matchUsersWithJD(
   let totalMatched = 0;
   let batchIndex = 0;
   let aiRequestCount = 0;
-  const maxAIRequestsPerMinute = 10; // Giảm số request AI để tránh rate limit
-  const minCandidatesRequired = 10; // Số ứng viên tối thiểu cần tìm
+  const maxAIRequestsPerMinute = 30; // Tăng số request AI để xử lý nhanh hơn
+  const minCandidatesRequired = 20; // Tăng số ứng viên tối thiểu để tìm đủ candidates
   
   // Progress tracking
   let totalUsers = 0;
@@ -1347,7 +1348,12 @@ async function matchUsersWithJD(
         userGroupResult = await analyzeUserJobGroupWithAI(jobTitle, jobGroups, jdDetail);
       } catch (aiError) {
         console.warn(`[USER_GROUP_AI] AI analysis failed for user ${user._id}: ${aiError.message}, using fallback`);
-        userGroupResult = mapUserJobToGroup(jobTitle, jobGroups, jdDetail.job_description || '');
+        try {
+          userGroupResult = mapUserJobToGroup(jobTitle, jobGroups, jdDetail.job_description || '');
+        } catch (fallbackError) {
+          console.error(`[USER_GROUP_FALLBACK] Fallback also failed for user ${user._id}: ${fallbackError.message}`);
+          userGroupResult = { group: null, score: 0, matched: null };
+        }
       }
 
       // Process all users but mark group match status
@@ -1409,9 +1415,9 @@ async function matchUsersWithJD(
               throw new Error('Rate limit reached, using fallback');
             }
 
-            // Add delay between AI requests to avoid rate limiting
+            // Add minimal delay between AI requests to avoid rate limiting
             if (aiRequestCount > 0) {
-              const delay = Math.random() * 2000 + 1000; // 1-3 seconds random delay
+              const delay = Math.random() * 500 + 200; // 200-700ms random delay (giảm từ 1-3s)
               console.log(`[AI_DELAY] Waiting ${delay.toFixed(0)}ms before next AI request...`);
               await new Promise(resolve => setTimeout(resolve, delay));
             }

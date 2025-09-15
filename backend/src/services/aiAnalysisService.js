@@ -107,7 +107,7 @@ JSON Response:
   /**
    * Gọi AI API với retry mechanism
    */
-  async callAI(prompt, retries = 3, delay = 1000) {
+  async callAI(prompt, retries = 2, delay = 500) {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         // Validate API key
@@ -136,7 +136,7 @@ JSON Response:
                 content: prompt
               }
             ],
-            max_tokens: 1000, // Giảm max_tokens để tiết kiệm
+            max_tokens: 50, // Giảm max_tokens để tăng tốc độ
             temperature: 0.1
           },
           {
@@ -144,7 +144,7 @@ JSON Response:
               'Authorization': `Bearer ${this.apiKey}`,
               'Content-Type': 'application/json'
             },
-            timeout: 30000 // 30 seconds timeout
+            timeout: 10000 // 10 seconds timeout để tăng tốc độ
           }
         );
 
