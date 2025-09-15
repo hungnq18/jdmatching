@@ -36,10 +36,25 @@ function parseAIResponse(response, functionName = 'unknown') {
       jsonStr = jsonMatch[0];
     }
     
+    // Fix unterminated strings and other common JSON issues
+    jsonStr = fixJSONString(jsonStr);
+    
     return JSON.parse(jsonStr);
   } catch (parseError) {
     console.error(`Error parsing AI response in ${functionName}:`, parseError);
     console.error('Raw AI response:', response);
+    console.error('Processed JSON string:', jsonStr);
+    
+    // Try to extract partial data manually
+    try {
+      const partialData = extractPartialData(response, functionName);
+      if (partialData) {
+        console.log('Using partial data extraction');
+        return partialData;
+      }
+    } catch (partialError) {
+      console.error('Partial data extraction failed:', partialError);
+    }
     
     // Return fallback based on function type
     if (functionName.includes('JobGroup')) {
@@ -62,10 +77,102 @@ function parseAIResponse(response, functionName = 'unknown') {
   }
 }
 
+/**
+ * Fix common JSON string issues
+ */
+function fixJSONString(jsonStr) {
+  // Fix unterminated strings
+  jsonStr = jsonStr.replace(/"([^"]*)$/, '"$1"');
+  
+  // Fix unescaped quotes in strings
+  jsonStr = jsonStr.replace(/"([^"]*)"([^"]*)"([^"]*)":/g, '"$1\\"$2\\"$3":');
+  
+  // Fix missing commas
+  jsonStr = jsonStr.replace(/"\s*}\s*"/g, '", "');
+  jsonStr = jsonStr.replace(/"\s*]\s*"/g, '", "');
+  
+  // Fix trailing commas
+  jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
+  
+  // Ensure proper JSON structure
+  if (!jsonStr.startsWith('{')) {
+    jsonStr = '{' + jsonStr;
+  }
+  if (!jsonStr.endsWith('}')) {
+    jsonStr = jsonStr + '}';
+  }
+  
+  return jsonStr;
+}
+
+/**
+ * Extract partial data from malformed response
+ */
+function extractPartialData(response, functionName) {
+  const text = response.toLowerCase();
+  
+  // Extract group name
+  const groupMatch = response.match(/"group_name"\s*:\s*"([^"]*)"/i) || 
+                    response.match(/group_name["\s]*:["\s]*([^",}\n]+)/i);
+  
+  // Extract confidence
+  const confidenceMatch = response.match(/"confidence"\s*:\s*([0-9.]+)/i) ||
+                         response.match(/confidence["\s]*:["\s]*([0-9.]+)/i);
+  
+  // Extract reasoning
+  const reasoningMatch = response.match(/"reasoning"\s*:\s*"([^"]*)"/i) ||
+                        response.match(/reasoning["\s]*:["\s]*([^",}\n]+)/i);
+  
+  // Extract keywords
+  const keywordsMatch = response.match(/"matched_keywords"\s*:\s*\[([^\]]*)\]/i) ||
+                       response.match(/matched_keywords["\s]*:["\s]*\[([^\]]*)\]/i);
+  
+  // Extract is_same_group
+  const sameGroupMatch = response.match(/"is_same_group"\s*:\s*(true|false)/i) ||
+                        response.match(/is_same_group["\s]*:["\s]*(true|false)/i);
+  
+  const result = {};
+  
+  if (groupMatch) {
+    result.group_name = groupMatch[1].trim();
+  }
+  
+  if (confidenceMatch) {
+    result.confidence = parseFloat(confidenceMatch[1]) || 0.5;
+  }
+  
+  if (reasoningMatch) {
+    result.reasoning = reasoningMatch[1].trim();
+  }
+  
+  if (keywordsMatch) {
+    try {
+      const keywordsStr = keywordsMatch[1];
+      const keywords = keywordsStr.split(',').map(k => k.trim().replace(/"/g, ''));
+      result.matched_keywords = keywords.filter(k => k.length > 0);
+    } catch (e) {
+      result.matched_keywords = [];
+    }
+  }
+  
+  if (sameGroupMatch) {
+    result.is_same_group = sameGroupMatch[1].toLowerCase() === 'true';
+  }
+  
+  // Only return if we extracted at least some data
+  if (Object.keys(result).length > 0) {
+    return result;
+  }
+  
+  return null;
+}
+
 // Rate limiting cho AI requests
 let aiRequestCount = 0;
 let lastResetTime = Date.now();
-const maxAIRequestsPerMinute = 30; // Tăng rate limit để xử lý nhanh hơn
+const maxAIRequestsPerMinute = 15; // Giảm để tránh rate limit
+const maxTokensPerMinute = 150000; // Giới hạn token per minute
+let tokensUsedThisMinute = 0;
 
 /**
  * Reset AI request counter mỗi phút
@@ -74,8 +181,34 @@ function resetAIRequestCounter() {
   const now = Date.now();
   if (now - lastResetTime >= 60000) {
     aiRequestCount = 0;
+    tokensUsedThisMinute = 0;
     lastResetTime = now;
   }
+}
+
+/**
+ * Kiểm tra rate limit trước khi gọi AI
+ */
+function checkRateLimit(estimatedTokens = 100) {
+  resetAIRequestCounter();
+  
+  if (aiRequestCount >= maxAIRequestsPerMinute) {
+    throw new Error(`Rate limit exceeded: ${aiRequestCount}/${maxAIRequestsPerMinute} requests per minute`);
+  }
+  
+  if (tokensUsedThisMinute + estimatedTokens > maxTokensPerMinute) {
+    throw new Error(`Token limit exceeded: ${tokensUsedThisMinute + estimatedTokens}/${maxTokensPerMinute} tokens per minute`);
+  }
+  
+  return true;
+}
+
+/**
+ * Cập nhật token usage
+ */
+function updateTokenUsage(tokensUsed) {
+  tokensUsedThisMinute += tokensUsed;
+  aiRequestCount++;
 }
 
 /**
@@ -87,29 +220,20 @@ function resetAIRequestCounter() {
  */
 async function calculateAIMatchScore(jdText, userProfile, jdDetail) {
   try {
-    // Reset counter nếu cần
-    resetAIRequestCounter();
+    // Kiểm tra rate limit trước khi gọi AI
+    checkRateLimit(50); // Ước tính token usage cho prompt ngắn
     
-    // Kiểm tra rate limit
-    if (aiRequestCount >= maxAIRequestsPerMinute) {
-      console.log(`[AI_RATE_LIMIT] Reached ${maxAIRequestsPerMinute} requests per minute, using fallback`);
-      throw new Error('Rate limit reached');
-    }
-    
-    aiRequestCount++;
-    
-    // Tạo prompt siêu ngắn gọn để tăng tốc độ xử lý
+    // Tạo prompt siêu ngắn gọn để giảm token usage
     const prompt = `Đánh giá phù hợp (0.0-1.0):
-
-JD: ${jdText.substring(0, 200)}...
-Visa: ${jdDetail.visa_type || 'N/A'}
-
-User: ${userProfile.jobTitle || 'N/A'} | ${userProfile.gender || 'N/A'}
-
+JD: ${jdText.substring(0, 100)}...
+User: ${userProfile.jobTitle || 'N/A'}
 Chỉ trả về số:`;
 
     const response = await aiAnalysisService.callAI(prompt);
     const score = parseFloat(response.trim());
+    
+    // Cập nhật token usage (ước tính)
+    updateTokenUsage(50);
     
     // Đảm bảo score trong khoảng 0-1
     return isNaN(score) ? 0.5 : Math.max(0, Math.min(1, score));
@@ -895,41 +1019,39 @@ function getJDGroupFromVisaType(jdVisaType, jobGroups) {
  */
 async function analyzeJobGroupWithAI(jdDetail, jobGroups) {
   try {
-    // Tạo danh sách các nhóm ngành có sẵn
+    // Kiểm tra rate limit trước khi gọi AI
+    checkRateLimit(200); // Ước tính token usage
+    
+    // Tạo danh sách các nhóm ngành có sẵn (rút gọn)
     const availableGroups = jobGroups.map(group => ({
       name: group.group_vi,
-      description: group.group_en || group.group_ja || group.group_vi,
-      jobs: (group.jobs || []).map(job => job.vi).join(', ')
+      jobs: (group.jobs || []).slice(0, 3).map(job => job.vi).join(', ') // Chỉ lấy 3 job đầu
     }));
 
-    // Tạo prompt cho AI
-    const prompt = `Bạn là chuyên gia phân loại công việc. Hãy phân tích thông tin công việc sau và chọn nhóm ngành phù hợp nhất.
+    // Tạo prompt ngắn gọn cho AI
+    const prompt = `Phân loại công việc này vào nhóm ngành phù hợp:
 
-THÔNG TIN CÔNG VIỆC:
-- Tên công việc: ${jdDetail.job_name || 'N/A'}
-- Loại visa: ${jdDetail.visa_type || 'N/A'}
-- Mô tả công việc: ${(jdDetail.job_description || '').substring(0, 500)}...
-- Công ty: ${jdDetail.company_name || 'N/A'}
-- Ngành nghề: ${jdDetail.industry || 'N/A'}
+Công việc: ${jdDetail.job_name || 'N/A'}
+Mô tả: ${(jdDetail.job_description || '').substring(0, 200)}...
 
-CÁC NHÓM NGÀNH CÓ SẴN:
+Nhóm ngành:
 ${availableGroups.map((group, index) => 
-  `${index + 1}. ${group.name} (${group.description})
-     Các công việc: ${group.jobs}`
-).join('\n\n')}
+  `${index + 1}. ${group.name}: ${group.jobs}`
+).join('\n')}
 
-Hãy phân tích và trả về kết quả theo format JSON:
+Trả về JSON:
 {
-  "group_name": "Tên nhóm ngành phù hợp nhất",
-  "confidence": 0.95,
-  "reasoning": "Lý do tại sao chọn nhóm này",
-  "matched_keywords": ["từ khóa", "liên quan"]
-}
-
-Chỉ trả về JSON, không có text khác.`;
+  "group_name": "Tên nhóm phù hợp",
+  "confidence": 0.9,
+  "reasoning": "Lý do ngắn gọn",
+  "matched_keywords": ["từ khóa"]
+}`;
 
     const response = await aiAnalysisService.callAI(prompt);
     const result = parseAIResponse(response, 'analyzeJobGroupWithAI');
+    
+    // Cập nhật token usage (ước tính)
+    updateTokenUsage(200);
     
     // Tìm group tương ứng trong database
     const matchedGroup = jobGroups.find(g => 
@@ -979,41 +1101,39 @@ Chỉ trả về JSON, không có text khác.`;
  */
 async function analyzeUserJobGroupWithAI(jobTitle, jobGroups, jdDetail) {
   try {
-    // Tạo danh sách các nhóm ngành có sẵn
+    // Kiểm tra rate limit trước khi gọi AI
+    checkRateLimit(150); // Ước tính token usage
+    
+    // Tạo danh sách các nhóm ngành có sẵn (rút gọn)
     const availableGroups = jobGroups.map(group => ({
       name: group.group_vi,
-      description: group.group_en || group.group_ja || group.group_vi,
-      jobs: (group.jobs || []).map(job => job.vi).join(', ')
+      jobs: (group.jobs || []).slice(0, 2).map(job => job.vi).join(', ') // Chỉ lấy 2 job đầu
     }));
 
-    // Tạo prompt cho AI
-    const prompt = `Bạn là chuyên gia phân loại công việc. Hãy phân tích chức danh công việc của ứng viên và xác định nhóm ngành phù hợp.
+    // Tạo prompt ngắn gọn cho AI
+    const prompt = `Phân loại chức danh này vào nhóm ngành:
 
-THÔNG TIN ỨNG VIÊN:
-- Chức danh công việc: ${jobTitle}
+Ứng viên: ${jobTitle}
+Công việc tuyển: ${jdDetail.job_name || 'N/A'}
 
-CONTEXT CÔNG VIỆC ĐANG TUYỂN:
-- Tên công việc: ${jdDetail.job_name || 'N/A'}
-- Mô tả công việc: ${(jdDetail.job_description || '').substring(0, 300)}...
-
-CÁC NHÓM NGÀNH CÓ SẴN:
+Nhóm ngành:
 ${availableGroups.map((group, index) => 
-  `${index + 1}. ${group.name} (${group.description})
-     Các công việc: ${group.jobs}`
-).join('\n\n')}
+  `${index + 1}. ${group.name}: ${group.jobs}`
+).join('\n')}
 
-Hãy phân tích và trả về kết quả theo format JSON:
+Trả về JSON:
 {
-  "group_name": "Tên nhóm ngành phù hợp nhất",
-  "confidence": 0.85,
-  "reasoning": "Lý do tại sao chọn nhóm này",
+  "group_name": "Tên nhóm phù hợp",
+  "confidence": 0.8,
+  "reasoning": "Lý do ngắn",
   "is_same_group": true
-}
-
-Chỉ trả về JSON, không có text khác.`;
+}`;
 
     const response = await aiAnalysisService.callAI(prompt);
     const result = parseAIResponse(response, 'analyzeUserJobGroupWithAI');
+    
+    // Cập nhật token usage (ước tính)
+    updateTokenUsage(150);
     
     // Tìm group tương ứng trong database
     const matchedGroup = jobGroups.find(g => 
@@ -1462,8 +1582,10 @@ async function matchUsersWithJD(
         if (!matchedUserIds.has(user._id)) {
           try {
             // Check rate limit before making AI request
-            if (aiRequestCount >= maxAIRequestsPerMinute) {
-              console.log(`[RATE_LIMIT] Reached ${maxAIRequestsPerMinute} AI requests, using fallback scoring`);
+            try {
+              checkRateLimit(50); // Ước tính token usage cho AI scoring
+            } catch (rateLimitError) {
+              console.log(`[RATE_LIMIT] ${rateLimitError.message}, using fallback scoring`);
               throw new Error('Rate limit reached, using fallback');
             }
 
@@ -1474,8 +1596,6 @@ async function matchUsersWithJD(
               await new Promise(resolve => setTimeout(resolve, delay));
             }
 
-            aiRequestCount++;
-            
             // Calculate AI match score
             const aiMatchScore = await calculateAIMatchScore(
               jd.original_text || jd.text || '', 
