@@ -209,9 +209,9 @@ class JDController {
         // Enhanced fallback: Extract basic info from text
         console.log('[JD_ANALYSIS] Using enhanced fallback extraction');
         analyzedData = {
-          title: extractJobName(jdText),
+          title: extractJobName(jdText) || 'Job Description',
           company_name: extractCompanyName(jdText),
-          job_name: extractJobName(jdText),
+          job_name: extractJobName(jdText) || 'Job Position',
           location: extractLocation(jdText),
           visa_type: extractVisaType(jdText),
           industry: extractIndustry(jdText),
@@ -345,9 +345,9 @@ class JDController {
         // Enhanced fallback: Extract basic info from text
         console.log('[JD_ANALYSIS] Using enhanced fallback extraction');
         analyzedData = {
-          title: extractJobName(jdText),
+          title: extractJobName(jdText) || 'Job Description',
           company_name: extractCompanyName(jdText),
-          job_name: extractJobName(jdText),
+          job_name: extractJobName(jdText) || 'Job Position',
           location: extractLocation(jdText),
           visa_type: extractVisaType(jdText),
           industry: extractIndustry(jdText),

@@ -42,13 +42,14 @@ ${jdText}
 QUAN TRỌNG: 
 - Phân tích kỹ từng từ, từng câu trong JD
 - Tìm kiếm thông tin một cách chính xác
-- Nếu không tìm thấy thông tin, để null
+- Nếu không tìm thấy thông tin, để null (TRỪ title - phải có giá trị)
 - Đảm bảo JSON hợp lệ, không có lỗi syntax
+- title KHÔNG BAO GIỜ được để null
 
 Hãy trích xuất các thông tin sau:
 
 {
-  "title": "Tiêu đề thông báo tuyển dụng (tìm trong dòng đầu hoặc tiêu đề chính)",
+  "title": "Tiêu đề thông báo tuyển dụng (BẮT BUỘC - tìm trong dòng đầu hoặc tiêu đề chính, nếu không có thì dùng 'Job Description')",
   "company_name": "Tên công ty (tìm từ 'Công ty', 'Tập đoàn', 'Công ty cổ phần')",
   "company_website": "Website công ty (tìm URL hoặc link)",
   "company_description": "Mô tả công ty (tìm đoạn mô tả về công ty)",
@@ -293,6 +294,14 @@ JSON Response:
 
       const parsed = JSON.parse(jsonStr);
       
+      // Debug logging
+      console.log('[AI_RESPONSE] Parsed data:', {
+        title: parsed.title,
+        company_name: parsed.company_name,
+        hasTitle: !!parsed.title,
+        hasCompanyName: !!parsed.company_name
+      });
+      
       // Validate và clean data
       return this.validateAndCleanData(parsed);
     } catch (error) {
@@ -450,6 +459,12 @@ JSON Response:
    */
   validateAndCleanData(data) {
     console.log('[VALIDATE] Starting data validation');
+    console.log('[VALIDATE] Input data:', {
+      title: data.title,
+      company_name: data.company_name,
+      hasTitle: !!data.title,
+      hasCompanyName: !!data.company_name
+    });
     const cleaned = {};
 
     // Danh sách các field cần xử lý
@@ -474,7 +489,14 @@ JSON Response:
       const value = data[field];
       
       if (value === null || value === undefined || value === '') {
-        cleaned[field] = null;
+        // Đảm bảo field title luôn có giá trị mặc định (field bắt buộc duy nhất)
+        if (field === 'title') {
+          console.log('[VALIDATE] Setting default title: Job Description');
+          cleaned[field] = 'Job Description';
+          validFields++; // Đếm field bắt buộc
+        } else {
+          cleaned[field] = null;
+        }
       } else if (Array.isArray(value)) {
         const filtered = value.filter(item => item && item.trim() !== '');
         cleaned[field] = filtered.length > 0 ? filtered : null;
@@ -512,6 +534,13 @@ JSON Response:
       total_fields: totalFields,
       analysis_timestamp: new Date().toISOString()
     };
+
+    console.log('[VALIDATE] Final cleaned data:', {
+      title: cleaned.title,
+      company_name: cleaned.company_name,
+      hasTitle: !!cleaned.title,
+      hasCompanyName: !!cleaned.company_name
+    });
 
     return cleaned;
   }

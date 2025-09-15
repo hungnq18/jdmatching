@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const jdSchema = new mongoose.Schema({
 title: { type: String, required: true }, // Tiêu đề thông báo tuyển dụng
-company_name: { type: String, required: true }, // Tên công ty
+company_name: { type: String }, // Tên công ty
 company_website: { type: String }, // Website công ty
 company_description: { type: String }, // Mô tả công ty
 location: { type: String }, // Địa điểm làm việc
