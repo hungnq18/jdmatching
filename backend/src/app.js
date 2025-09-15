@@ -22,7 +22,9 @@ const corsOptions = {
       'http://localhost:3000',
       'https://jdmatching-1.onrender.com',
       'https://jdmatching-csoft.vercel.app',
+      'https://jdmatching-csoft.vercel.app/',
       'https://c-soft-frontend.onrender.com',
+      'https://jdmatching.onrender.com',
       process.env.CORS_ORIGIN
     ].filter(Boolean);
     
@@ -47,6 +49,21 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+// Additional CORS headers for all responses
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', req.get('Origin') || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
