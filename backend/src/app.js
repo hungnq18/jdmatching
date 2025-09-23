@@ -3,6 +3,7 @@ const express = require("express");
 const path = require("path");
 const matchRoutes = require('./routes/match');
 const jdRoutesNew = require('./routes/jdRoutes');
+const contractRoutes = require('./routes/contractRoutes');
 
 const app = express();
 
@@ -129,5 +130,6 @@ app.get('/health', (req, res) => {
 // API routes
 app.use('/api', matchRoutes);
 app.use('/api/jd', jdRoutesNew);
+app.use('/api/contracts', contractRoutes);
 
 module.exports = app;
