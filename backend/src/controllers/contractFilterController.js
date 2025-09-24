@@ -152,7 +152,7 @@ class ContractFilterController {
 
   /**
    * Xuất danh sách ứng viên ra file CSV
-   * POST /api/contracts/export
+   * POST /api/contracts/export/csv
    */
   async exportUsersToCSV(req, res) {
     try {
@@ -212,6 +212,76 @@ class ContractFilterController {
 
     } catch (error) {
       console.error('❌ Error in exportUsersToCSV:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Xuất danh sách ứng viên ra file Excel
+   * POST /api/contracts/export/excel
+   */
+  async exportUsersToExcel(req, res) {
+    try {
+      const {
+        maxYears = 1,
+        minYears = 0,
+        company,
+        jobTitle,
+        filename
+      } = req.body;
+
+      console.log('📊 Exporting users to Excel...');
+
+      // Get filtered users
+      const result = await contractFilterService.filterUsersByContractExpiry({
+        maxYears: parseFloat(maxYears),
+        minYears: parseFloat(minYears),
+        company,
+        jobTitle,
+        limit: 10000 // Large limit for export
+      });
+
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          message: 'Error filtering users for export',
+          error: result.error
+        });
+      }
+
+      if (!result.data.users || result.data.users.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'No users found matching the criteria'
+        });
+      }
+
+      // Generate filename if not provided
+      const exportFilename = filename || `contract_users_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+      // Export to Excel
+      const filePath = await contractFilterService.exportToExcel(
+        result.data.users,
+        exportFilename
+      );
+
+      res.status(200).json({
+        success: true,
+        message: 'Users exported to Excel successfully',
+        data: {
+          filename: exportFilename,
+          filePath: filePath,
+          userCount: result.data.users.length,
+          statistics: result.data.statistics
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Error in exportUsersToExcel:', error);
       res.status(500).json({
         success: false,
         message: 'Internal server error',

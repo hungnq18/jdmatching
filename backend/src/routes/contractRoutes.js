@@ -16,8 +16,11 @@ router.get('/expiring-soon', contractFilterController.getExpiringSoonUsers);
 // GET /api/contracts/filter - Lọc ứng viên theo thời gian hợp đồng tùy chỉnh
 router.get('/filter', contractFilterController.filterUsersByContract);
 
-// POST /api/contracts/export - Xuất danh sách ứng viên ra CSV
-router.post('/export', contractFilterController.exportUsersToCSV);
+// POST /api/contracts/export/csv - Xuất danh sách ứng viên ra CSV
+router.post('/export/csv', contractFilterController.exportUsersToCSV);
+
+// POST /api/contracts/export/excel - Xuất danh sách ứng viên ra Excel
+router.post('/export/excel', contractFilterController.exportUsersToExcel);
 
 // GET /api/contracts/statistics - Lấy thống kê về hợp đồng
 router.get('/statistics', contractFilterController.getContractStatistics);

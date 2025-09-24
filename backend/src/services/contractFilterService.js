@@ -1,5 +1,6 @@
 const User = require('../models/user');
 const mongoose = require('mongoose');
+const XLSX = require('xlsx');
 
 /**
  * Service để lọc ứng viên còn 1 năm hợp đồng
@@ -300,7 +301,8 @@ class ContractFilterService {
         'Birth Date',
         'ID Number',
         'Phone',
-        'Email'
+        'Email',
+        'Social Contact'
       ];
 
       // CSV rows
@@ -318,7 +320,8 @@ class ContractFilterService {
         user.birthDate || '',
         user.idNumber || '',
         user.familyPhone || '',
-        user.email || ''
+        user.email || '',
+        user.socialContact || ''
       ]);
 
       // Create CSV content
@@ -340,6 +343,85 @@ class ContractFilterService {
 
     } catch (error) {
       console.error('❌ Error exporting to CSV:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Xuất danh sách ứng viên ra file Excel
+   * @param {Array} users - Danh sách ứng viên
+   * @param {string} filename - Tên file
+   * @returns {Promise<string>} Đường dẫn file Excel
+   */
+  async exportToExcel(users, filename = 'contract_expiry_users.xlsx') {
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      
+      if (!users || users.length === 0) {
+        throw new Error('No users to export');
+      }
+
+      // Prepare data for Excel
+      const excelData = users.map(user => ({
+        'Code': user.code || '',
+        'Full Name': user.fullName || '',
+        'Job Title': user.jobTitle || '',
+        'Company': user.receivingCompany || '',
+        'Entry Date': user.entryDate || '',
+        'Contract Duration': user.contractDuration || '',
+        'Contract End Date': user.contractEndDate ? user.contractEndDate.toISOString().split('T')[0] : '',
+        'Years Remaining': user.yearsRemaining || '',
+        'Days Remaining': user.daysRemaining || '',
+        'Gender': user.gender || '',
+        'Birth Date': user.birthDate || '',
+        'ID Number': user.idNumber || '',
+        'Phone': user.familyPhone || '',
+        'Email': user.email || '',
+        'Social Contact': user.socialContact || ''
+      }));
+
+      // Create workbook and worksheet
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.json_to_sheet(excelData);
+
+      // Set column widths
+      const columnWidths = [
+        { wch: 10 }, // Code
+        { wch: 25 }, // Full Name
+        { wch: 20 }, // Job Title
+        { wch: 25 }, // Company
+        { wch: 15 }, // Entry Date
+        { wch: 15 }, // Contract Duration
+        { wch: 15 }, // Contract End Date
+        { wch: 15 }, // Years Remaining
+        { wch: 15 }, // Days Remaining
+        { wch: 10 }, // Gender
+        { wch: 15 }, // Birth Date
+        { wch: 20 }, // ID Number
+        { wch: 15 }, // Phone
+        { wch: 30 }, // Email
+        { wch: 25 }  // Social Contact
+      ];
+      worksheet['!cols'] = columnWidths;
+
+      // Add worksheet to workbook
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Contract Users');
+
+      // Ensure uploads directory exists
+      const uploadsDir = path.join(__dirname, '../../uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      const filePath = path.join(uploadsDir, filename);
+      XLSX.writeFile(workbook, filePath);
+
+      console.log(`✅ Exported ${users.length} users to Excel: ${filePath}`);
+      return filePath;
+
+    } catch (error) {
+      console.error('❌ Error exporting to Excel:', error);
       throw error;
     }
   }
