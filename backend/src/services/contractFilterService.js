@@ -286,6 +286,21 @@ class ContractFilterService {
         throw new Error('No users to export');
       }
 
+      // Helper function to extract Facebook link
+      const extractFacebookLink = (socialNetwork) => {
+        if (!socialNetwork) return '';
+        const facebookRegex = /(?:https?:\/\/)?(?:www\.)?(?:facebook\.com|fb\.com)\/[^\s]+/gi;
+        const match = socialNetwork.match(facebookRegex);
+        if (match) {
+          let link = match[0];
+          if (!link.startsWith('http')) {
+            link = 'https://' + link;
+          }
+          return link;
+        }
+        return '';
+      };
+
       // CSV headers
       const headers = [
         'Code',
@@ -302,7 +317,9 @@ class ContractFilterService {
         'ID Number',
         'Phone',
         'Email',
-        'Social Contact'
+        'Social Contact',
+        'Social Network',
+        'Facebook Link'
       ];
 
       // CSV rows
@@ -321,7 +338,9 @@ class ContractFilterService {
         user.idNumber || '',
         user.familyPhone || '',
         user.email || '',
-        user.socialContact || ''
+        user.socialContact || '',
+        user.socialNetwork || '',
+        extractFacebookLink(user.socialNetwork)
       ]);
 
       // Create CSV content
@@ -362,6 +381,21 @@ class ContractFilterService {
         throw new Error('No users to export');
       }
 
+      // Helper function to extract Facebook link
+      const extractFacebookLink = (socialNetwork) => {
+        if (!socialNetwork) return '';
+        const facebookRegex = /(?:https?:\/\/)?(?:www\.)?(?:facebook\.com|fb\.com)\/[^\s]+/gi;
+        const match = socialNetwork.match(facebookRegex);
+        if (match) {
+          let link = match[0];
+          if (!link.startsWith('http')) {
+            link = 'https://' + link;
+          }
+          return link;
+        }
+        return '';
+      };
+
       // Prepare data for Excel
       const excelData = users.map(user => ({
         'Code': user.code || '',
@@ -378,7 +412,9 @@ class ContractFilterService {
         'ID Number': user.idNumber || '',
         'Phone': user.familyPhone || '',
         'Email': user.email || '',
-        'Social Contact': user.socialContact || ''
+        'Social Contact': user.socialContact || '',
+        'Social Network': user.socialNetwork || '',
+        'Facebook Link': extractFacebookLink(user.socialNetwork)
       }));
 
       // Create workbook and worksheet
@@ -401,7 +437,8 @@ class ContractFilterService {
         { wch: 20 }, // ID Number
         { wch: 15 }, // Phone
         { wch: 30 }, // Email
-        { wch: 25 }  // Social Contact
+        { wch: 25 }, // Social Contact
+        { wch: 40 }  // Facebook Link
       ];
       worksheet['!cols'] = columnWidths;
 

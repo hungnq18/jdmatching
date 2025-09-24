@@ -21,6 +21,7 @@ const userSchema = new mongoose.Schema({
   filterMonth: String,
   filterYear: String,
   socialContact: String,
+  socialNetwork: String,
   email: String,
   familyPhone: String,
 
