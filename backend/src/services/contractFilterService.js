@@ -319,7 +319,8 @@ class ContractFilterService {
         'Email',
         'Social Contact',
         'Social Network',
-        'Facebook Link'
+        'Facebook Link',
+        'Status'
       ];
 
       // CSV rows
@@ -340,7 +341,8 @@ class ContractFilterService {
         user.email || '',
         user.socialContact || '',
         user.socialNetwork || '',
-        extractFacebookLink(user.socialNetwork)
+        extractFacebookLink(user.socialNetwork),
+        user.status || 'active'
       ]);
 
       // Create CSV content
@@ -414,7 +416,8 @@ class ContractFilterService {
         'Email': user.email || '',
         'Social Contact': user.socialContact || '',
         'Social Network': user.socialNetwork || '',
-        'Facebook Link': extractFacebookLink(user.socialNetwork)
+        'Facebook Link': extractFacebookLink(user.socialNetwork),
+        'Status': user.status || 'active'
       }));
 
       // Create workbook and worksheet

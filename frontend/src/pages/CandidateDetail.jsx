@@ -74,6 +74,17 @@ const CandidateDetail = () => {
     return 'Còn nhiều thời gian';
   };
 
+  const getCandidateStatusInfo = (status) => {
+    const statusMap = {
+      'active': { text: 'Đang làm việc', color: 'bg-green-100 text-green-800 border-green-200', icon: '✅' },
+      'absconded': { text: 'Bỏ trốn', color: 'bg-red-100 text-red-800 border-red-200', icon: '🚨' },
+      'returned_home': { text: 'Đã về nước', color: 'bg-blue-100 text-blue-800 border-blue-200', icon: '🏠' },
+      'terminated': { text: 'Chấm dứt hợp đồng', color: 'bg-orange-100 text-orange-800 border-orange-200', icon: '❌' },
+      'completed': { text: 'Hoàn thành', color: 'bg-purple-100 text-purple-800 border-purple-200', icon: '🎉' }
+    };
+    return statusMap[status] || statusMap['active'];
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -143,13 +154,30 @@ const CandidateDetail = () => {
                 <h2 className="text-2xl font-bold">{candidate.fullName}</h2>
                 <p className="text-blue-100 mt-1">{candidate.jobTitle}</p>
                 <p className="text-blue-200 text-sm mt-1">{candidate.receivingCompany}</p>
+                <div className="flex items-center mt-2 space-x-4">
+                  <span className="text-blue-200 text-sm">
+                    Mã ứng viên: <span className="font-mono">{candidate.code || 'N/A'}</span>
+                  </span>
+                  <span className="text-blue-200 text-sm">
+                    ID: <span className="font-mono text-xs">{candidate._id}</span>
+                  </span>
+                </div>
               </div>
               <div className="text-right">
-                <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(candidate.daysRemaining)}`}>
-                  {getStatusText(candidate.daysRemaining)}
+                <div className="flex flex-col items-end space-y-2">
+                  <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${getCandidateStatusInfo(candidate.status).color}`}>
+                    <span className="mr-1">{getCandidateStatusInfo(candidate.status).icon}</span>
+                    {getCandidateStatusInfo(candidate.status).text}
+                  </div>
+                  <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(candidate.daysRemaining)}`}>
+                    {getStatusText(candidate.daysRemaining)}
+                  </div>
                 </div>
                 <p className="text-blue-200 text-sm mt-2">
                   Còn {formatYearsRemaining(candidate.yearsRemaining)} ({candidate.daysRemaining} ngày)
+                </p>
+                <p className="text-blue-300 text-xs mt-1">
+                  Hết hạn: {formatDate(candidate.contractEndDate)}
                 </p>
               </div>
             </div>
@@ -194,6 +222,19 @@ const CandidateDetail = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Thông tin hợp đồng</h3>
                 <div className="space-y-3">
                   <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="font-medium text-gray-600">Tình trạng:</span>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(candidate.daysRemaining)}`}>
+                      {getStatusText(candidate.daysRemaining)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
+                    <span className="font-medium text-gray-600">Thời gian còn lại:</span>
+                    <span className="text-gray-900">
+                      {formatYearsRemaining(candidate.yearsRemaining)}
+                      <span className="text-xs text-gray-500 ml-1">({candidate.daysRemaining} ngày)</span>
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-gray-100">
                     <span className="font-medium text-gray-600">Ngày vào:</span>
                     <span className="text-gray-900">{formatDate(candidate.entryDate)}</span>
                   </div>
@@ -216,6 +257,46 @@ const CandidateDetail = () => {
                   <div className="flex justify-between py-2 border-b border-gray-100">
                     <span className="font-medium text-gray-600">Địa chỉ thường trú:</span>
                     <span className="text-gray-900 text-right">{candidate.permanentAddress || 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Candidate Status */}
+            <div className="mt-8">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Tình trạng ứng viên</h3>
+              <div className="bg-gray-50 rounded-lg p-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                  <div className="text-center">
+                    <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium border ${getCandidateStatusInfo(candidate.status).color} mb-2`}>
+                      <span className="mr-1">{getCandidateStatusInfo(candidate.status).icon}</span>
+                      {getCandidateStatusInfo(candidate.status).text}
+                    </div>
+                    <p className="text-sm text-gray-600">Trạng thái ứng viên</p>
+                  </div>
+                  <div className="text-center">
+                    <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium border ${getStatusColor(candidate.daysRemaining)} mb-2`}>
+                      {getStatusText(candidate.daysRemaining)}
+                    </div>
+                    <p className="text-sm text-gray-600">Trạng thái hợp đồng</p>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-600 mb-1">
+                      {formatYearsRemaining(candidate.yearsRemaining)}
+                    </div>
+                    <p className="text-sm text-gray-600">Thời gian còn lại</p>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-green-600 mb-1">
+                      {candidate.daysRemaining}
+                    </div>
+                    <p className="text-sm text-gray-600">Ngày còn lại</p>
+                  </div>
+                </div>
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">Ngày hết hạn hợp đồng:</span>
+                    <span className="font-medium text-gray-900">{formatDate(candidate.contractEndDate)}</span>
                   </div>
                 </div>
               </div>

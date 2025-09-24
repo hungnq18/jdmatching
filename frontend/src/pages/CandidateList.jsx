@@ -168,6 +168,17 @@ const CandidateList = () => {
     return `${Math.round(years * 100) / 100} năm`;
   };
 
+  const getCandidateStatusInfo = (status) => {
+    const statusMap = {
+      'active': { text: 'Đang làm việc', color: 'bg-green-100 text-green-800 border-green-200', icon: '✅' },
+      'absconded': { text: 'Bỏ trốn', color: 'bg-red-100 text-red-800 border-red-200', icon: '🚨' },
+      'returned_home': { text: 'Đã về nước', color: 'bg-blue-100 text-blue-800 border-blue-200', icon: '🏠' },
+      'terminated': { text: 'Chấm dứt hợp đồng', color: 'bg-orange-100 text-orange-800 border-orange-200', icon: '❌' },
+      'completed': { text: 'Hoàn thành', color: 'bg-purple-100 text-purple-800 border-purple-200', icon: '🎉' }
+    };
+    return statusMap[status] || statusMap['active'];
+  };
+
 
   if (loading) {
     return (
@@ -544,7 +555,10 @@ const CandidateList = () => {
                       Facebook
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Trạng thái
+                      Tình trạng ứng viên
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Tình trạng hợp đồng
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Thao tác
@@ -631,6 +645,12 @@ const CandidateList = () => {
                             );
                           }
                         })()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getCandidateStatusInfo(candidate.status).color}`}>
+                          <span className="mr-1">{getCandidateStatusInfo(candidate.status).icon}</span>
+                          {getCandidateStatusInfo(candidate.status).text}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(candidate.daysRemaining)}`}>

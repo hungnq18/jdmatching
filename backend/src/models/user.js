@@ -24,6 +24,11 @@ const userSchema = new mongoose.Schema({
   socialNetwork: String,
   email: String,
   familyPhone: String,
+  status: {
+    type: String,
+    enum: ['active', 'absconded', 'returned_home', 'terminated', 'completed'],
+    default: 'active'
+  },
 
   // ✅ field dịch sẵn
   jobTitle_en: String,
