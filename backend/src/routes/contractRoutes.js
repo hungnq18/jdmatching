@@ -13,8 +13,8 @@ router.get('/one-year', contractFilterController.getOneYearContractUsers);
 // GET /api/contracts/expiring-soon - Lấy danh sách ứng viên sắp hết hợp đồng (3 tháng)
 router.get('/expiring-soon', contractFilterController.getExpiringSoonUsers);
 
-// GET /api/contracts/filter - Lọc ứng viên theo thời gian hợp đồng tùy chỉnh
-router.get('/filter', contractFilterController.filterUsersByContract);
+// POST /api/contracts/filter - Lọc ứng viên theo thời gian hợp đồng tùy chỉnh
+router.post('/filter', contractFilterController.filterUsersByContract);
 
 // POST /api/contracts/export/csv - Xuất danh sách ứng viên ra CSV
 router.post('/export/csv', contractFilterController.exportUsersToCSV);

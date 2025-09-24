@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import CandidateDetail from "./pages/CandidateDetail";
 import CandidateList from "./pages/CandidateList";
 import ContractManagement from "./pages/ContractManagement";
 import JobDetail from "./pages/jobDetail";
@@ -14,6 +15,7 @@ function App() {
         <Route path="/jobs/:id" element={<JobDetail />} />
         <Route path="/contracts" element={<ContractManagement />} />
         <Route path="/candidates" element={<CandidateList />} />
+        <Route path="/candidate/:id" element={<CandidateDetail />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>

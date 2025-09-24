@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Sử dụng import.meta.env thay vì process.env cho Vite
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://jdmatching.onrender.com';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 console.log('🌐 API Base URL:', API_BASE_URL);
 
