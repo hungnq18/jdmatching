@@ -342,6 +342,57 @@ class ContractFilterController {
       });
     }
   }
+
+  /**
+   * Lấy thông tin chi tiết ứng viên theo ID
+   */
+  async getCandidateById(req, res) {
+    try {
+      const { id } = req.params;
+      console.log(`[getCandidateById] Fetching candidate with ID: ${id}`);
+
+      // Import User model
+      const User = require('../models/user');
+
+      // Tìm ứng viên trong database
+      const candidate = await User.findById(id);
+      
+      if (!candidate) {
+        return res.status(404).json({
+          success: false,
+          message: 'Không tìm thấy ứng viên'
+        });
+      }
+
+      // Tính toán thời gian còn lại của hợp đồng
+      const contractEndDate = new Date(candidate.contractEndDate);
+      const today = new Date();
+      const timeDiff = contractEndDate.getTime() - today.getTime();
+      const daysRemaining = Math.ceil(timeDiff / (1000 * 3600 * 24));
+      const yearsRemaining = daysRemaining / 365;
+
+      // Thêm thông tin tính toán vào candidate
+      const candidateWithCalculations = {
+        ...candidate.toObject(),
+        daysRemaining,
+        yearsRemaining
+      };
+
+      console.log(`[getCandidateById] Found candidate: ${candidate.fullName}`);
+
+      res.json({
+        success: true,
+        data: candidateWithCalculations
+      });
+
+    } catch (error) {
+      console.error('Error in getCandidateById:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Lỗi khi lấy thông tin ứng viên: ' + error.message
+      });
+    }
+  }
 }
 
 module.exports = new ContractFilterController();

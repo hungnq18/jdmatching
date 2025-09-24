@@ -25,4 +25,7 @@ router.post('/export/excel', contractFilterController.exportUsersToExcel);
 // GET /api/contracts/statistics - Lấy thống kê về hợp đồng
 router.get('/statistics', contractFilterController.getContractStatistics);
 
+// GET /api/contracts/candidate/:id - Lấy thông tin chi tiết ứng viên theo ID
+router.get('/candidate/:id', contractFilterController.getCandidateById);
+
 module.exports = router;

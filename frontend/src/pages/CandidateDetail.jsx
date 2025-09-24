@@ -88,16 +88,30 @@ const CandidateDetail = () => {
   if (error || !candidate) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
+        <div className="text-center max-w-md mx-auto px-4">
           <div className="text-red-500 text-6xl mb-4">⚠️</div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Không tìm thấy ứng viên</h1>
-          <p className="text-gray-600 mb-6">{error || 'Ứng viên không tồn tại hoặc đã bị xóa'}</p>
-          <button
-            onClick={() => navigate(-1)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors duration-200"
-          >
-            Quay lại
-          </button>
+          <p className="text-gray-600 mb-4">
+            {error || 'Ứng viên không tồn tại hoặc đã bị xóa'}
+          </p>
+          <div className="text-sm text-gray-500 mb-6">
+            <p>ID ứng viên: <code className="bg-gray-100 px-2 py-1 rounded">{id}</code></p>
+            <p className="mt-2">Ứng viên không tồn tại trong hệ thống hoặc đã bị xóa.</p>
+          </div>
+          <div className="space-y-3">
+            <button
+              onClick={() => navigate(-1)}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors duration-200"
+            >
+              Quay lại
+            </button>
+            <button
+              onClick={() => navigate('/candidates')}
+              className="w-full bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg transition-colors duration-200"
+            >
+              Xem danh sách ứng viên
+            </button>
+          </div>
         </div>
       </div>
     );
