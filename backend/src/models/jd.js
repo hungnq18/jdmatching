@@ -14,7 +14,7 @@ recruitment_number_applicants: { type: Number }, // Số lượng tham gia thi t
 gender: { type: String }, // Giới tính
 age_range: { type: String }, // Độ tuổi
 education: { type: String }, // Trình độ học vấn
-skills_required: { type: String }, // Tay nghề yêu cầu
+skills_required: [{ type: String }], // Tay nghề yêu cầu
 hand_dominance: { type: String, default: null }, // Thuận tay
 smoking: { type: String, default: null }, // Hút thuốc
 marriage_status: [{ type: String }], // Tình trạng hôn nhân
