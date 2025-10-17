@@ -7,7 +7,7 @@ console.log('🌐 API Base URL:', API_BASE_URL);
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 120000,
+  timeout: 600000, // 10 phút cho AI analysis
   headers: {
     'Content-Type': 'application/json',
   },

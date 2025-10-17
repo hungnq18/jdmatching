@@ -144,7 +144,7 @@ JSON Response:
               'Authorization': `Bearer ${this.apiKey}`,
               'Content-Type': 'application/json'
             },
-            timeout: 10000 // 10 seconds timeout để tăng tốc độ
+            timeout: 120000 // 2 phút timeout cho AI analysis
           }
         );
 

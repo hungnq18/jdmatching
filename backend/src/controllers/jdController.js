@@ -601,7 +601,7 @@ class JDController {
       console.log(`[getMatchingCandidates] Starting matching for JD: ${id}`);
       
       // Set timeout for matching process
-      const matchingTimeout = 150000; // 2.5 minutes
+      const matchingTimeout = 300000; // 5 minutes
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('Matching process timeout')), matchingTimeout);
       });
